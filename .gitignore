@@ -1,0 +1,60 @@
+# --- Python ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+insightscope-env/
+
+# --- Tool caches ----------------------------------------------------------
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+.ipynb_checkpoints/
+
+# --- Local settings and secrets ------------------------------------------
+.env
+.env.*
+!.env.example
+opencode.json
+.opencode/
+
+# --- Run outputs (never committed) ---------------------------------------
+artifacts/
+runs/
+flagged/
+audits.db
+*.db
+*.db-wal
+*.db-shm
+
+# --- Media: keep personal footage and audio out of git --------------------
+# See docs/data-handling.md. Docs screenshots are the only exception.
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.avi
+*.wav
+*.mp3
+*.m4a
+*.flac
+!docs/images/**
+
+# --- Model weights --------------------------------------------------------
+models/
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.gguf
+
+# --- OS / editors ---------------------------------------------------------
+.DS_Store
+.idea/
+.vscode/
