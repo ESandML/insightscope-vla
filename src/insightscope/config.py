@@ -80,6 +80,13 @@ class RunConfig(BaseModel):
     loop: LoopConfig = Field(default_factory=LoopConfig)
     models: ModelChoice = Field(default_factory=ModelChoice)
 
+    # Local model servers (Ollama) serialise work; 2 is a safe edge default.
+    max_concurrency: int = Field(default=2, ge=1)
+
+    # Where run outputs go. Both are gitignored and safe to delete.
+    artifacts_dir: Path = Path("artifacts")
+    db_path: Path = Path("audits.db")
+
     # Open-ended by default. Supplying a checklist enables the step rules only.
     checklist: ChecklistSpec | None = None
 

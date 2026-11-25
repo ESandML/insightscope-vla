@@ -234,6 +234,8 @@ class Discrepancy(BaseModel):
     span_said: TimeSpan | None = None
     evidence_refs: tuple[str, ...] = ()
     det_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    said_value: str = ""
+    seen_value: str = ""
     note: str = ""
 
 
@@ -339,3 +341,41 @@ class ReconcileStats(BaseModel):
     n_discrepancies: int = 0
     counts_by_rule: dict[str, int] = Field(default_factory=dict)
     counts_by_severity: dict[str, int] = Field(default_factory=dict)
+
+
+class ReportProvenance(BaseModel):
+    """What produced this report, so it can be explained and reproduced."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    bundle_id: str
+    source_path: str
+    transcript_mode: TranscriptionMode
+    keyframe_count: int
+    text_model: str
+    vision_model: str
+
+
+class AuditReport(BaseModel):
+    """The finished artifact: findings, narrative, and the trail behind them."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    run_id: str = Field(min_length=1)
+    status: str
+    markdown: str
+    findings: tuple[Finding, ...] = ()
+    stats: ReconcileStats = Field(default_factory=ReconcileStats)
+    provenance: ReportProvenance
+    caveats: tuple[str, ...] = ()
+
+
+class ActionsSummary(BaseModel):
+    """What the deterministic action node wrote to disk."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    run_logged: bool = False
+    annotated: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
+    db_path: str = ""
