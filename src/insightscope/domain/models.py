@@ -285,3 +285,57 @@ class SubjectRef(BaseModel):
     seen: bool = False
     said: bool = False
     expected: bool = False
+
+
+class ChangeEvent(BaseModel):
+    """A visible change the vision model noticed on a motion keyframe.
+
+    Only used for optional omission findings: "something moved that you never
+    mentioned". Kept separate from ``Assertion`` because it is not a claim about a
+    known attribute, it is a hint that a subject exists.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    keyframe_id: str = Field(min_length=1)
+    span: TimeSpan
+    subject_id: str = Field(min_length=1)
+    description: str = ""
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class InteractionProposal(BaseModel):
+    """What the camera thinks the speaker was touching when they said "this".
+
+    A proposal, not a binding. ``resolution.py`` decides whether it is conclusive.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    keyframe_id: str = Field(min_length=1)
+    span: TimeSpan
+    object_hint: str = Field(min_length=1)
+    note: str = ""
+
+
+class ResolutionRecord(BaseModel):
+    """Why a pronoun did or did not become a subject. Explanation, not control flow."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    claim_id: str = Field(min_length=6)
+    resolved_subject_id: str | None = None
+    source_keyframe_id: str | None = None
+    note: str = ""
+
+
+class ReconcileStats(BaseModel):
+    """Cheap signals for evals and the run summary. Counts, not opinions."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    n_claims: int = 0
+    n_observations: int = 0
+    n_discrepancies: int = 0
+    counts_by_rule: dict[str, int] = Field(default_factory=dict)
+    counts_by_severity: dict[str, int] = Field(default_factory=dict)

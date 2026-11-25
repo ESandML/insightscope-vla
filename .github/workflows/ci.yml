@@ -39,3 +39,6 @@ jobs:
 
       - name: Tests (deterministic only)
         run: uv run pytest -m "not live and not eval"
+
+      - name: Architecture contracts
+        run: uv run lint-imports

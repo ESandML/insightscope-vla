@@ -5,7 +5,10 @@ setup:
 	uv sync
 
 ## Everything CI runs. Run this before every push.
-check: lint type test
+check: lint type test arch
+
+arch:
+	uv run lint-imports
 
 lint:
 	uv run ruff check .

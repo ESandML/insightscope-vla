@@ -23,12 +23,13 @@ auditable, and it is why the same input produces the same findings.
 
 ## Status
 
-Phase 0: repository scaffolding. Nothing below the docs is implemented yet.
+Phase 1: the deterministic half is in place — vocabulary, evidence model, reconciliation
+rules, and adjudication. The graph, model clients, and action layer come next.
 
 | Phase | Contents | State |
 | --- | --- | --- |
-| 0 | Repo, packaging, CI, docs | in progress |
-| 1 | Domain vocabulary, deterministic rules, full graph with fake models | not started |
+| 0 | Repo, packaging, CI, docs | done |
+| 1 | Domain vocabulary, deterministic rules, full graph with fake models | in progress |
 | 2 | OpenCV keyframes, faster-whisper, Ollama clients, cassettes | not started |
 | 3 | Gradio UI, nightly evals, releases | not started |
 
