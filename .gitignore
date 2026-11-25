@@ -6,7 +6,6 @@ build/
 dist/
 .venv/
 venv/
-insightscope-env/
 
 # --- Tool caches ----------------------------------------------------------
 .pytest_cache/
@@ -23,6 +22,7 @@ htmlcov/
 !.env.example
 opencode.json
 .opencode/
+session-*.md
 
 # --- Run outputs (never committed) ---------------------------------------
 artifacts/
