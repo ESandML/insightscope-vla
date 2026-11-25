@@ -13,6 +13,7 @@ from typing import Protocol
 
 from insightscope.contracts.extraction import ClaimBatch, KeyframeAnalysis
 from insightscope.contracts.report import Critique, Issue, ReportDraft
+from insightscope.domain.checklist import ChecklistSpec
 from insightscope.domain.models import EvidenceManifest, Finding, KeyframeRef, Utterance
 from insightscope.domain.ontology import Attribute
 
@@ -55,6 +56,10 @@ class CritiqueRequest:
 class TextClient(Protocol):
     """Extraction, drafting, and critique. One object because they share a model."""
 
+    def prompt_version(self, name: str) -> str:
+        """Content hash of the prompt used for ``name``, for provenance."""
+        ...
+
     async def extract_claims(self, request: ClaimsRequest) -> ClaimBatch: ...
 
     async def synthesize(self, request: SynthesisRequest) -> ReportDraft: ...
@@ -65,4 +70,16 @@ class TextClient(Protocol):
 class VisionClient(Protocol):
     """One keyframe in, one structured analysis out."""
 
+    def prompt_version(self, name: str) -> str: ...
+
     async def analyse(self, request: VisionRequest) -> KeyframeAnalysis: ...
+
+
+class ChecklistGenerator(Protocol):
+    """Turns a plain-English task into an inspectable checklist.
+
+    Separate from ``TextClient`` on purpose: the audit graph never generates
+    checklists, and a client used only for extraction should not have to implement it.
+    """
+
+    async def generate_checklist(self, description: str) -> ChecklistSpec: ...

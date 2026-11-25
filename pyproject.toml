@@ -80,6 +80,18 @@ pretty = true
 module = ["cv2", "cv2.*"]
 ignore_missing_imports = true
 
+# Optional extras: imported lazily, absent from the core install and from CI.
+[[tool.mypy.overrides]]
+module = [
+  "instructor",
+  "instructor.*",
+  "openai",
+  "openai.*",
+  "faster_whisper",
+  "faster_whisper.*",
+]
+ignore_missing_imports = true
+
 # --- pytest: test discovery and markers -----------------------------------
 [tool.pytest.ini_options]
 minversion = "8.0"

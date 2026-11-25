@@ -24,8 +24,16 @@ from insightscope.clients.base import (
 )
 from insightscope.contracts.extraction import ClaimBatch, ClaimItem, KeyframeAnalysis
 from insightscope.contracts.report import Critique, ReportDraft
+from insightscope.domain.checklist import ChecklistSpec, StepSpec
 
 DraftFactory = Callable[[SynthesisRequest], ReportDraft]
+
+DEFAULT_CHECKLIST = ChecklistSpec(
+    name="generated_checklist",
+    description="A desk task.",
+    expected_objects=["laptop"],
+    steps=[StepSpec(step_id="close_laptop", description="Close the laptop lid")],
+)
 
 
 def draft_citing_all(markdown: str | None = None) -> DraftFactory:
@@ -57,15 +65,20 @@ class FakeTextClient:
         claims: Mapping[str, Sequence[ClaimItem]] | None = None,
         drafts: Sequence[DraftFactory] | None = None,
         critiques: Sequence[Critique] | None = None,
+        checklist: ChecklistSpec | None = None,
         fail: Mapping[str, int] | None = None,
     ) -> None:
         self._claims = {text: list(items) for text, items in (claims or {}).items()}
         self._drafts: list[DraftFactory] = list(drafts or [draft_citing_all()])
         self._critiques: list[Critique] = list(critiques or [Critique(verdict="accept")])
+        self._checklist = checklist or DEFAULT_CHECKLIST
         self._fail = dict(fail or {})
         self._draft_calls = 0
         self._critique_calls = 0
         self.calls: list[str] = []
+
+    def prompt_version(self, name: str) -> str:
+        return f"fake-{name}"
 
     def _enter(self, name: str) -> None:
         self.calls.append(name)
@@ -73,6 +86,10 @@ class FakeTextClient:
         if remaining > 0:
             self._fail[name] = remaining - 1
             raise ClientError(name, f"scripted failure in {name}")
+
+    async def generate_checklist(self, description: str) -> ChecklistSpec:
+        self._enter("generate_checklist")
+        return self._checklist
 
     async def extract_claims(self, request: ClaimsRequest) -> ClaimBatch:
         self._enter("extract_claims")
@@ -101,6 +118,9 @@ class FakeVisionClient:
         self._analyses = dict(analyses or {})
         self._fail = dict(fail or {})
         self.calls: list[str] = []
+
+    def prompt_version(self, name: str) -> str:
+        return f"fake-{name}"
 
     async def analyse(self, request: VisionRequest) -> KeyframeAnalysis:
         self.calls.append(request.keyframe.keyframe_id)

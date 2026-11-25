@@ -98,7 +98,10 @@ def make_extract_claims(client: TextClient) -> Node:
                         span=span,
                         evidence_refs=(utterance.utterance_id,),
                         confidence=0.7,
-                        provenance=Provenance(model=config.models.text, prompt_version="v1"),
+                        provenance=Provenance(
+                            model=config.models.text,
+                            prompt_version=client.prompt_version("extract_claims"),
+                        ),
                     )
                 )
 
@@ -187,7 +190,10 @@ def make_extract_observations(client: VisionClient) -> Node:
                         span=keyframe.span,
                         evidence_refs=(keyframe.keyframe_id,),
                         confidence=verified.confidence,
-                        provenance=Provenance(model=config.models.vision, prompt_version="v1"),
+                        provenance=Provenance(
+                            model=config.models.vision,
+                            prompt_version=client.prompt_version("verify_keyframe"),
+                        ),
                     )
                 )
             if analysis.interacted_object:

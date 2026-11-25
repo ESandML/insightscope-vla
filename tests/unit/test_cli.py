@@ -1,8 +1,10 @@
 """CLI behaviour: exit codes, printed summaries, and the files left behind."""
 
+import importlib.util
 import json
 from pathlib import Path
 
+import pytest
 from tests.support import write_test_video
 
 from insightscope.actions.db import history
@@ -171,3 +173,75 @@ def test_unsupported_transcript_returns_two(tmp_path: Path, capsys: object) -> N
     captured = capsys.readouterr()  # type: ignore[attr-defined]
     assert code == 2
     assert "unsupported format" in captured.err
+
+
+def test_checklist_new_writes_reviewable_yaml(tmp_path: Path, capsys: object) -> None:
+    output = tmp_path / "desk.yaml"
+
+    code = main(
+        [
+            "checklist",
+            "new",
+            "close the laptop and put the mug on the tray",
+            "-o",
+            str(output),
+            "--client",
+            "fake",
+        ]
+    )
+
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert code == 0
+    assert output.exists()
+
+    text = output.read_text(encoding="utf-8")
+    assert "generated_checklist" in text
+    assert "close_laptop" in text
+    assert "review and edit" in captured.out
+
+
+def test_audit_can_record_and_replay_a_cassette(tmp_path: Path, capsys: object) -> None:
+    clip = write_test_video(tmp_path / "clip.avi")
+    transcript = transcript_json(tmp_path / "t.json")
+    cassette = tmp_path / "desk.cassette.json"
+    base = [
+        "audit",
+        str(clip),
+        "--transcript",
+        str(transcript),
+        "--artifacts-dir",
+        str(tmp_path / "artifacts"),
+        "--db",
+        str(tmp_path / "audits.db"),
+        "--client",
+        "fake",
+    ]
+
+    assert main([*base, "--record", str(cassette)]) == 0
+    assert cassette.exists()
+
+    assert main([*base, "--replay", str(cassette)]) == 0
+    assert "cassette replay" in capsys.readouterr().out  # type: ignore[attr-defined]
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("instructor") is not None,
+    reason="the llm extra is installed, so the client can be constructed",
+)
+def test_ollama_without_the_llm_extra_explains_how_to_fix(tmp_path: Path, capsys: object) -> None:
+    clip = write_test_video(tmp_path / "clip.avi")
+
+    code = main(
+        [
+            "audit",
+            str(clip),
+            "--client",
+            "ollama",
+            "--transcript",
+            str(transcript_json(tmp_path / "t.json")),
+        ]
+    )
+
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert code == 2
+    assert "llm extra" in captured.err
