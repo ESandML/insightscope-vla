@@ -7,11 +7,18 @@ Built for a desk, not a data centre: a phone clip, a local model via Ollama, and
 file. No cloud calls required.
 
 ```text
-clip.mp4 ──► keyframes ──► vision model ──► assertions ─┐
-                                                         ├─► deterministic rules ──► report
-transcript ──► text model ──► assertions ───────────────┘         │
-                                                                  └─► flagged frames + audit log
+1. transcript ──► text model ──► claims ──► subjects to verify
+                                                 │
+2. clip.mp4 ──► OpenCV keyframes ────────────────┼──► vision model ──► observations
+                 motion · anchors · snapping     │
+                                                 ▼
+3. claims + observations ──► deterministic rules ──► findings
+                                                 │
+4. findings ──► report writer ──► critic ──► report + flagged frames + audit log
 ```
+
+Claims come first because open-ended discovery means the camera is asked specific
+questions ("is the laptop closed?") rather than asked to describe everything.
 
 ## The one rule
 
@@ -30,7 +37,7 @@ the critique loop, retry budgets, annotated frames, and the SQLite audit log.
 | --- | --- | --- |
 | 0 | Repo, packaging, CI, docs | done |
 | 1 | Domain vocabulary, deterministic rules, full graph with fake models | done |
-| 2 | OpenCV keyframes, faster-whisper, Ollama clients, cassettes | not started |
+| 2 | OpenCV keyframes, faster-whisper, Ollama clients, cassettes | in progress |
 | 3 | Gradio UI, nightly evals, releases | not started |
 
 ## Quick start
@@ -42,6 +49,23 @@ make setup     # create .venv and install dependencies
 make check     # lint, format check, types, tests — the same commands CI runs
 ```
 
+## Try it
+
+```bash
+# What would the audit look at? Selects keyframes and shows why each was kept.
+insightscope keyframes clip.mp4
+
+# Show the same selection with transcript-aware "before/after" frames.
+insightscope keyframes clip.mp4 --transcript transcript.json
+
+# Full pipeline (scripted clients until the Ollama slice lands).
+insightscope audit clip.mp4 --transcript transcript.json
+insightscope audit clip.mp4 --transcript transcript.json --checklist desk.yaml
+```
+
+`--transcript` accepts a timestamped `.json` or a plain `.txt`. A `.txt` has no
+timestamps, so alignment is reported as degraded rather than invented.
+
 ## The demo task
 
 "Pack the desk": unplug the charger → close the laptop → mug on the tray → stow the pen.
@@ -51,11 +75,16 @@ lid open at 00:12"*, or *"you opened the drawer but never mentioned it"*.
 
 ## What this does not do (yet)
 
-- Understand arbitrary language. The vocabulary is a small closed list of desk-object
-  attributes plus a step catalog; anything else is reported as unmapped rather than guessed.
-- Prove absence. If no keyframe covers a moment, the finding says "insufficient evidence",
-  never "you didn't do it".
-- Run without a local model server for real video. Phase 1 runs entirely on fakes.
+- **Understand arbitrary properties.** Subjects are open-ended: whatever the transcript
+  mentions becomes a subject to verify, and an optional YAML checklist adds expected
+  objects and ordered steps. Attributes are a *closed* vocabulary — `presence`,
+  `open_closed_state`, `location`, `count`, `step_completed`. A claim about anything
+  outside that list is not extracted rather than guessed at.
+- **Prove absence.** If no keyframe covers a moment, the finding says "insufficient
+  evidence", never "you didn't do it".
+- **Audit real footage with a model yet.** The CLI already runs the real telemetry path
+  (OpenCV keyframes + transcript loading); model-backed extraction over Ollama is the
+  next Phase 2 slice. Until then `audit` runs the graph with scripted clients.
 
 ## Docs
 
