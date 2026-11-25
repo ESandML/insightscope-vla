@@ -74,6 +74,7 @@ pretty = true
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-ra --strict-markers --strict-config"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
@@ -93,3 +94,38 @@ branch = true
 
 [tool.coverage.report]
 exclude_lines = ["if TYPE_CHECKING:", "raise NotImplementedError", "pragma: no cover"]
+
+# --- Architecture contracts (checked by `lint-imports`) -------------------
+[tool.importlinter]
+root_packages = ["insightscope"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "reconcile stays deterministic"
+type = "forbidden"
+source_modules = ["insightscope.reconcile"]
+forbidden_modules = [
+  "insightscope.clients",
+  "insightscope.graph",
+  "openai",
+  "instructor",
+  "langgraph",
+]
+
+[[tool.importlinter.contracts]]
+name = "domain knows nothing above it"
+type = "forbidden"
+source_modules = ["insightscope.domain"]
+forbidden_modules = [
+  "insightscope.config",
+  "insightscope.contracts",
+  "insightscope.clients",
+  "insightscope.graph",
+  "insightscope.reconcile",
+]
+
+[[tool.importlinter.contracts]]
+name = "contracts do not depend on the graph"
+type = "forbidden"
+source_modules = ["insightscope.contracts"]
+forbidden_modules = ["insightscope.graph", "insightscope.clients"]
