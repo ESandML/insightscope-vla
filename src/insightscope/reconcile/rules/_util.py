@@ -40,6 +40,8 @@ def claim_discrepancy(
         span_said=claim.span,
         evidence_refs=observation.evidence_refs if observation is not None else claim.evidence_refs,
         det_confidence=det_confidence,
+        said_value=str(claim.value),
+        seen_value=str(observation.value) if observation is not None else "",
         note=note,
     )
 

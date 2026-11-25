@@ -23,13 +23,13 @@ auditable, and it is why the same input produces the same findings.
 
 ## Status
 
-Phase 1: the deterministic half is in place — vocabulary, evidence model, reconciliation
-rules, and adjudication. The graph, model clients, and action layer come next.
+Phase 1 is complete: the whole pipeline runs offline against fake clients, including
+the critique loop, retry budgets, annotated frames, and the SQLite audit log.
 
 | Phase | Contents | State |
 | --- | --- | --- |
 | 0 | Repo, packaging, CI, docs | done |
-| 1 | Domain vocabulary, deterministic rules, full graph with fake models | in progress |
+| 1 | Domain vocabulary, deterministic rules, full graph with fake models | done |
 | 2 | OpenCV keyframes, faster-whisper, Ollama clients, cassettes | not started |
 | 3 | Gradio UI, nightly evals, releases | not started |
 

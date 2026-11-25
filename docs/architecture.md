@@ -54,6 +54,11 @@ vision step needs a list of subjects to verify. That costs parallelism and buys 
 questions ("is the laptop closed?") instead of "describe everything", which is both
 cheaper and easier to test.
 
+Fan-out happens *inside* the two extraction nodes (`asyncio.gather` bounded by a
+semaphore), not through LangGraph's `Send`. At 12 keyframes per-item checkpointing
+buys nothing, and returning one sorted list removes merge-order nondeterminism. Revisit
+if a run ever needs to resume halfway through a large keyframe set.
+
 `dispatch_actions` is terminal on purpose: a failed file write must never look like a
 critic finding and re-enter the retry loop.
 
