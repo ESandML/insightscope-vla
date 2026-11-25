@@ -6,7 +6,6 @@ build/
 dist/
 .venv/
 venv/
-insightscope-env/
 
 # --- Tool caches ----------------------------------------------------------
 .pytest_cache/
