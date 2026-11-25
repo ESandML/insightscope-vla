@@ -44,6 +44,11 @@ def render_markdown(
         lines += [f"- {caveat}" for caveat in caveats]
         lines.append("")
 
+    if evidence.notes:
+        lines += ["## Evidence notes", ""]
+        lines += [f"- {note}" for note in evidence.notes]
+        lines.append("")
+
     lines += ["## Summary", "", narrative.strip() or "_No summary was produced._", ""]
 
     if findings:

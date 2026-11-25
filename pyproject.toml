@@ -22,11 +22,16 @@ classifiers = [
 dependencies = [
   "langgraph>=1.0",
   "numpy>=1.26",
-  "opencv-python>=4.10",
+  # Headless: no GUI modules, no Qt/GTK system libraries. Nothing here calls
+  # imshow(); if you want a debug window, install opencv-python in your own venv.
+  "opencv-python-headless>=4.10",
   "pydantic>=2.9",
   "pydantic-settings>=2.5",
   "pyyaml>=6.0",
 ]
+
+[project.scripts]
+insightscope = "insightscope.cli:main"
 
 [project.optional-dependencies]
 # Local model calls (Phase 2). Core install stays usable without them.
@@ -69,6 +74,11 @@ python_version = "3.12"
 strict = true
 files = ["src"]
 pretty = true
+
+# OpenCV ships no type information; everything crossing that boundary is Any.
+[[tool.mypy.overrides]]
+module = ["cv2", "cv2.*"]
+ignore_missing_imports = true
 
 # --- pytest: test discovery and markers -----------------------------------
 [tool.pytest.ini_options]

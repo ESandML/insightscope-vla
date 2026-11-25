@@ -7,6 +7,11 @@ and the defaults keep boilerplate out of the interesting part.
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import cv2
+import numpy as np
+
 from insightscope.domain.models import (
     Assertion,
     ChangeEvent,
@@ -147,3 +152,35 @@ def proposal(
         span=make_span(start),
         object_hint=object_hint,
     )
+
+
+def write_test_video(
+    path: Path,
+    *,
+    seconds: float = 12.0,
+    fps: int = 10,
+    flash_at: float | None = 3.0,
+    size: tuple[int, int] = (160, 120),
+) -> Path:
+    """A tiny motion clip: flat grey, with an optional bright flash.
+
+    MJPG in an AVI container because that writer is present in the wheels we depend
+    on; the test does not care about codec quality, only about timestamps and motion.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    writer = cv2.VideoWriter(
+        str(path),
+        cv2.VideoWriter_fourcc(*"MJPG"),
+        fps,
+        size,  # type: ignore[attr-defined]
+    )
+    if not writer.isOpened():
+        raise RuntimeError("no MJPG writer available in this OpenCV build")
+
+    width, height = size
+    for index in range(int(seconds * fps)):
+        moment = index / fps
+        value = 220 if flash_at is not None and flash_at <= moment < flash_at + 0.5 else 40
+        writer.write(np.full((height, width, 3), value, dtype=np.uint8))
+    writer.release()
+    return path

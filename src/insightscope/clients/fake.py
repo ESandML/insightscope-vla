@@ -28,14 +28,22 @@ from insightscope.contracts.report import Critique, ReportDraft
 DraftFactory = Callable[[SynthesisRequest], ReportDraft]
 
 
-def draft_citing_all(
-    markdown: str = "The camera and the transcript disagree in places.",
-) -> DraftFactory:
-    """A draft that cites every finding, so validation passes on the first try."""
+def draft_citing_all(markdown: str | None = None) -> DraftFactory:
+    """A draft that cites every finding, so validation passes on the first try.
+
+    With no findings it says so. A stub that always claims disagreement would make a
+    clean report contradict itself, and the CLI shows this text to a human.
+    """
 
     def build(request: SynthesisRequest) -> ReportDraft:
+        if markdown is not None:
+            narrative = markdown
+        elif request.findings:
+            narrative = "The camera and the transcript disagree in places."
+        else:
+            narrative = "No conflicts were found between the transcript and the keyframes."
         return ReportDraft(
-            markdown=markdown,
+            markdown=narrative,
             cited_finding_ids=[finding.finding_id for finding in request.findings],
         )
 
