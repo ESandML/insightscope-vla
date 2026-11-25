@@ -23,6 +23,7 @@ htmlcov/
 !.env.example
 opencode.json
 .opencode/
+session-*.md
 
 # --- Run outputs (never committed) ---------------------------------------
 artifacts/

@@ -31,25 +31,50 @@ This is enforced by an import-linter contract in CI, not by good intentions.
 ## Graph
 
 ```text
-ingest ─► extract_observations (fan-out per keyframe) ─┐
-       └► extract_claims       (fan-out per utterance) ┴─► align ─► reconcile ─► synthesize
-                                                                                   │
-                                                              validate ─► critique ─┤
-                                                                                   ▼
-                                                                              gate (pure)
-                    ┌──────────────────────────┬─────────────────────────┬────────┘
-                    ▼                          ▼                         ▼
-                 finalize                   repair (targeted)        escalate
-                    │                          │                         │
-                    ▼                          └─► back to extract / synthesize
-              dispatch_actions
-                    │
-                    ▼
-                   END
+ingest ─► extract_claims (fan-out per utterance) ─► build_subject_registry
+       ─► extract_observations (fan-out per keyframe, targeted by the registry)
+       ─► resolve_references (pure) ─► align ─► reconcile ─► synthesize
+                                                                 │
+                                            validate ─► critique ─┤
+                                                                 ▼
+                                                            gate (pure)
+                  ┌──────────────────────────┬─────────────────────────┬────────┘
+                  ▼                          ▼                         ▼
+               finalize                   repair (targeted)        escalate
+                  │                          │                         │
+                  ▼                          └─► back to extract / synthesize
+            dispatch_actions
+                  │
+                  ▼
+                 END
 ```
+
+Claims are extracted **before** vision runs, because open-ended discovery means the
+vision step needs a list of subjects to verify. That costs parallelism and buys targeted
+questions ("is the laptop closed?") instead of "describe everything", which is both
+cheaper and easier to test.
 
 `dispatch_actions` is terminal on purpose: a failed file write must never look like a
 critic finding and re-enter the retry loop.
+
+## Open-ended mode
+
+By default there is no checklist, so the pipeline audits whatever the transcript talks
+about. Three rules keep that deterministic:
+
+- **Subjects are open, attributes are closed.** `subject_id` is produced by code
+  (lowercase, strip articles, apply aliases), so two spellings join only when an alias
+  says they should. Unknown names are kept as their own subject, never fuzzy-matched.
+- **Pronouns are deferred, not guessed.** "I closed this" becomes a claim with subject
+  `unspecified_target`. The vision model may propose which object the speaker is
+  touching; a pure Python step binds the claim only when exactly one candidate exists.
+  Zero or several candidates produce an `unresolved_reference` finding.
+- **Expectations are optional.** A checklist enables the step rules (order, missing
+  steps, completion). Without one those rules are skipped, not emulated.
+
+Omission detection (`seen but never mentioned`) is off by default: casual footage has
+too much background motion, and a report full of "you moved a chair" is a report nobody
+reads. Turn it on per run with `flag_omissions: true`.
 
 ## State
 
