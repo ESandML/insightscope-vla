@@ -22,12 +22,12 @@ Short version: everything stays on your machine, and your face never goes into g
    lose nothing except history.
 3. **No secrets in the repo.** `.env` only, and only locally. CI needs no credentials for the
    default test suite — that is deliberate.
-4. **Don't paste transcripts into issues.** Even for a desk demo, a transcript can contain
-   names and locations. Reproduce with a minimal synthetic example.
+4. **Don't paste transcripts into issues.** Even for a kitchen-counter demo, a transcript
+   can contain names and locations. Reproduce with a minimal synthetic example.
 
 ## If this is later used with real recordings
 
 Add the redaction step before anything leaves the machine: a `Redactor` on the transcript,
-applied at ingestion, so that no node or client ever sees raw text. The seam is described in
-the plan but intentionally not built yet — there is nothing to protect while fixtures are
-synthetic, and unused security machinery rots.
+applied at ingestion, so that no node or client ever sees raw text. The seam is
+intentionally not built yet — there is nothing to protect while fixtures are synthetic,
+and unused security machinery rots.

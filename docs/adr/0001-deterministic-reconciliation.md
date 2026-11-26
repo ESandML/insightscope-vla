@@ -15,13 +15,17 @@ Three problems:
    audit that cannot be re-run is not an audit.
 2. **No test coverage for the part that matters.** You can test that a model call returns
    JSON. You cannot regression-test a judgement buried in prose instructions.
-3. **No defensible absence.** A model asked "is the mug on the desk?" will usually answer
-   yes or no. The honest answer, when no frame shows the desk, is "I cannot tell".
+3. **No defensible absence.** A model asked "is the mug on the counter?" will usually
+   answer yes or no. The honest answer, when no frame shows that moment, is "I cannot
+   tell".
 
 ## Decision
 
-Models are confined to extraction: keyframe → structured `Assertion`, utterance →
-structured `Assertion`. Both are constrained by Pydantic schemas and a closed vocabulary.
+Models are confined to two jobs: extraction (keyframe → structured `Assertion`,
+utterance → structured `Assertion`) and drafting prose from findings that already exist.
+They never decide whether facts conflict, whether a step is out of order, or whether a run
+should retry. Both extraction outputs are constrained by Pydantic schemas; subjects are
+open-ended but attributes come from a closed vocabulary, so comparisons stay exact.
 
 All comparison happens in `reconcile/`, as named rules over normalised assertions:
 
@@ -56,4 +60,5 @@ Costs:
   drafted report, where being non-deterministic is acceptable because deterministic
   validators sit in front of it.
 - **Free-text triples with fuzzy matching.** Rejected: fuzzy matching hides the ambiguity
-  that an audit should surface. Unknown subjects are reported as unmapped.
+  that an audit should surface. Unknown subjects are reported as unmatched, never silently
+  merged into a neighbour.

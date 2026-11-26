@@ -34,22 +34,23 @@ This is enforced by an import-linter contract in CI, not by good intentions.
 | --- | --- | --- | --- |
 | Listen (default) | none | faster-whisper | open-ended claims |
 | Transcript | `--transcript FILE` | file (`.json` / `.txt`) | open-ended claims |
+| External audio | `--audio FILE` | separate recording | open-ended claims |
 | Process text | `--process` / `--process-file` | none (audio ignored) | LLM → YAML spec |
 | Spec | `--spec` (alias `--checklist`) | none (audio ignored) | YAML spec loaded |
 | Audio + process | `--listen --process` | faster-whisper | LLM → YAML spec |
 | Audio + spec | `--listen --spec` | faster-whisper | YAML spec loaded |
-| External audio | `--audio FILE` | separate recording | open-ended claims |
 | Transcript + process | `--transcript FILE --process` | file | LLM → YAML spec |
 | Transcript + spec | `--transcript FILE --spec` | file | YAML spec loaded |
+| External audio + process | `--audio FILE --process` | separate recording | LLM → YAML spec |
+| External audio + spec | `--audio FILE --spec` | separate recording | YAML spec loaded |
+Speech and reference are independent axes. `--listen`, `--transcript` and `--audio` are
+mutually exclusive speech sources; `--process`/`--process-file`/`--spec` are mutually
+exclusive references. `--process` and `--spec` default to silence; `--listen` or
+`--audio` supplies speech anyway, which produces the six hybrid modes.
 
-Speech and reference are independent axes. `--process`/`--process-file`/`--spec` are
-mutually exclusive as references, and `--listen`/`--transcript` are mutually exclusive as
-speech sources. `--process` and `--spec` default to silence; `--listen` forces Whisper
-even when a spec reference is present, which produces the four hybrid modes.
-
-Whisper is gated by one branch in the CLI: it runs when the speech source is `listen`
-or `audio`, which by default means "no spec reference". Hybrid runs are reported as
-`hybrid (listen + spec make_coffee)`, never as one of the single modes.
+Whisper is gated in exactly one place, `pipeline.resolve_transcript`: it runs when the
+speech source is `listen` or `audio`, which by default means "no spec reference". Hybrid
+runs are reported as `hybrid (listen + spec make_coffee)`, never as a single mode.
 
 Listen mode probes the container first. `has_audio_stream` uses PyAV (a faster-whisper
 dependency) and returns True when it cannot tell, so a silent clip fails with a clear
@@ -68,23 +69,27 @@ before it drives an audit.
 ## Graph
 
 ```text
-ingest ─► [speech source] ─► extract_claims ─► build_subject_registry
-       ─► extract_observations (keyframes; targets = claims + spec)
-       ─► resolve_references (pure) ─► align ─► reconcile ─► synthesize
-                                                                 │
-                                            validate ─► critique ─┤
-                                                                 ▼
-                                                            gate (pure)
-                  ┌──────────────────────────┬─────────────────────────┬────────┘
-                  ▼                          ▼                         ▼
-               finalize                   repair (targeted)        escalate
-                  │                          │                         │
-                  ▼                          └─► back to extract / synthesize
-            dispatch_actions
-                  │
-                  ▼
-                 END
+START
+  │
+  ▼
+ingest ─► extract_claims ─► extract_observations ─► reconcile ─► synthesize ─► validate
+                                                     (resolve · align · rules │
+                                                      · adjudicate)           ▼
+                                                                          critique
+                                                                              │
+                                                          gate (pure policy) ─┤
+                            ┌──────────────────┬──────────────────────────────┤
+                            ▼                  ▼                              ▼
+                         finalize      repair_synthesis              repair_extraction
+                            │                  │                              │
+                            │                  └─► synthesize                └─► extract_claims
+                            ├─► finalize_caveats ─┐
+                            └─► escalate ─────────┴─► dispatch_actions ─► END
 ```
+
+`reconcile` is a single node. Pronoun resolution, alignment, rule evaluation and
+adjudication happen inside it; they are listed on the diagram because they are the
+important steps, not because they are separate graph nodes.
 
 Claims are extracted **before** vision runs, because the vision step needs a list of
 subjects to verify. That costs parallelism and buys targeted questions ("is the kettle on
@@ -140,8 +145,8 @@ One `TypedDict` (`graph/state.py`) is the only channel between nodes.
 - **Append-only ledgers** for anything a fan-out writes (`Annotated[list[X], operator.add]`).
 - **Budgets in config, attempts in a ledger.** Router helpers count occurrences rather than
   storing counters, so there is one source of truth and a free audit trail.
-- **Derived facts are not stored.** `has_conflict` is a function of `discrepancies`, never a
-  field that can drift.
+- **Derived facts are not stored.** Whether a conflict exists is
+  `bool(reconciliation.findings)`, not a separate flag that can drift.
 
 ## Evidence and absence
 

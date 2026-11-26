@@ -8,7 +8,8 @@ make check
 ```
 
 `make check` must pass before you open a pull request. It runs the same commands as CI:
-`ruff check`, `ruff format --check`, `mypy`, and the deterministic test suite.
+`ruff check`, `ruff format --check`, `mypy`, the import-linter architecture contracts, and
+the deterministic test suite.
 
 ## Branches
 
@@ -36,8 +37,8 @@ docs(adr): record why routing is deterministic
 chore(deps): bump langgraph to 1.2
 ```
 
-Scope is the package or area: `graph`, `reconcile`, `telemetry`, `clients`, `actions`, `ui`,
-`docs`, `deps`, `ci`.
+Scope is the package or area: `graph`, `reconcile`, `telemetry`, `clients`, `contracts`,
+`domain`, `inputs`, `pipeline`, `report`, `actions`, `ui`, `docs`, `deps`, `ci`.
 
 ## What must pass
 
@@ -53,8 +54,15 @@ Scope is the package or area: `graph`, `reconcile`, `telemetry`, `clients`, `act
 Rules live in `src/insightscope/reconcile/rules/`. Each one:
 
 1. has a stable id (for example `R-OMIT-001`),
-2. reads only assertions and coverage — never calls a model,
+2. reads only assertions, evidence coverage, detected changes, and run config — never
+   calls a model,
 3. returns zero or more `Discrepancy` objects,
 4. has a row in the table-driven rule test.
 
 If a rule needs a model to work, it is not a rule.
+
+## Touching the UI
+
+`make ui` launches the Gradio app. Routing must stay in `inputs.py` and execution in
+`pipeline.py`; the UI and CLI both call those. A UI change that adds its own mode logic is
+the wrong change.
