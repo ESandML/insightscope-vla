@@ -86,6 +86,7 @@ def _finish(state: AuditState, status: str, caveats: Sequence[str]) -> NodeUpdat
             status=status,
             stats=stats,
             caveats=caveats,
+            has_spec=config.checklist is not None,
         ),
         findings=findings,
         stats=stats,

@@ -408,3 +408,110 @@ def test_transcript_can_accompany_a_spec(
     captured = capsys.readouterr()  # type: ignore[attr-defined]
     assert code == 0
     assert "spec make_coffee" in captured.out
+
+
+def whisper_returning(
+    monkeypatch: pytest.MonkeyPatch, text: str = "I closed the laptop"
+) -> dict[str, object]:
+    calls: dict[str, object] = {}
+
+    def fake_transcribe(path: Path, *, model_size: str) -> TranscriptBundle:
+        calls["path"] = path
+        calls["model"] = model_size
+        return TranscriptBundle(
+            utterances=(
+                Utterance(
+                    utterance_id="u_0001",
+                    text=text,
+                    span=TimeSpan(t_start_s=0.0, t_end_s=1.0),
+                ),
+            ),
+            mode="asr",
+        )
+
+    monkeypatch.setattr("insightscope.cli.transcribe", fake_transcribe)
+    return calls
+
+
+def test_listen_with_spec_is_a_hybrid_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: object
+) -> None:
+    write_test_video(tmp_path / "clip.avi")
+    calls = whisper_returning(monkeypatch)
+
+    code = main(audit_args(tmp_path, "--listen", "--spec", str(CHECKLIST)))
+
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert code == 0
+    assert calls["model"] == "small.en"
+    assert "hybrid (listen + spec make_coffee" in captured.out
+
+    report = next((tmp_path / "artifacts").glob("*/report.md")).read_text(encoding="utf-8")
+    assert "### Process / Spec Compliance" in report
+    assert "### Speech / Transcript Verification" in report
+    assert "R-STEP-003" in report
+
+
+def test_listen_with_process_is_a_hybrid_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: object
+) -> None:
+    write_test_video(tmp_path / "clip.avi")
+    whisper_returning(monkeypatch)
+
+    code = main(audit_args(tmp_path, "--listen", "--process", "fill the kettle, then pour water"))
+
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert code == 0
+    assert "hybrid (listen + process text → spec make_coffee" in captured.out
+    assert list((tmp_path / "artifacts").glob("*/generated_spec.yaml"))
+
+
+def test_spec_only_run_is_reported_as_spec(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: object
+) -> None:
+    write_test_video(tmp_path / "clip.avi")
+    forbid_whisper(monkeypatch)
+
+    code = main(audit_args(tmp_path, "--spec", str(CHECKLIST)))
+
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert code == 0
+    assert "input:     spec make_coffee" in captured.out
+    assert "hybrid (" not in captured.out
+
+
+def test_listen_and_transcript_are_mutually_exclusive(tmp_path: Path) -> None:
+    write_test_video(tmp_path / "clip.avi")
+
+    with pytest.raises(SystemExit):
+        main(
+            audit_args(
+                tmp_path,
+                "--listen",
+                "--transcript",
+                str(transcript_json(tmp_path / "t.json")),
+            )
+        )
+
+
+def test_open_ended_report_keeps_a_single_table(tmp_path: Path) -> None:
+    write_test_video(tmp_path / "clip.avi")
+
+    code = main(audit_args(tmp_path, "--transcript", str(transcript_json(tmp_path / "t.json"))))
+
+    assert code == 0
+    report = next((tmp_path / "artifacts").glob("*/report.md")).read_text(encoding="utf-8")
+    assert "### Process / Spec Compliance" not in report
+    assert "### Speech / Transcript Verification" not in report
+
+
+def test_spec_report_splits_findings(tmp_path: Path) -> None:
+    write_test_video(tmp_path / "clip.avi")
+
+    code = main(audit_args(tmp_path, "--spec", str(CHECKLIST)))
+
+    assert code == 0
+    report = next((tmp_path / "artifacts").glob("*/report.md")).read_text(encoding="utf-8")
+    assert "### Process / Spec Compliance" in report
+    assert "### Speech / Transcript Verification" in report
+    assert "No speech or observation conflicts." in report

@@ -26,6 +26,7 @@ def render_markdown(
     status: str,
     stats: ReconcileStats | None = None,
     caveats: Sequence[str] = (),
+    has_spec: bool = False,
 ) -> str:
     lines: list[str] = [
         f"# Audit report — {run_id}",
@@ -57,16 +58,38 @@ def render_markdown(
         lines += [f"## Findings ({len(findings)})", ""]
         if summary:
             lines += [f"Severity mix: {summary}.", ""]
-        lines += [
-            "| Severity | Rule | Subject | Said | Seen | When | Status |",
-            "| --- | --- | --- | --- | --- | --- | --- |",
-        ]
-        lines += [_finding_row(finding) for finding in findings]
-        lines.append("")
+
+        process = [finding for finding in findings if is_process_finding(finding)]
+        speech = [finding for finding in findings if not is_process_finding(finding)]
+
+        if has_spec or (process and speech):
+            lines += ["### Process / Spec Compliance", ""]
+            lines += _table(process) if process else ["No deviations from the spec."]
+            lines += ["", "### Speech / Transcript Verification", ""]
+            lines += _table(speech) if speech else ["No speech or observation conflicts."]
+            lines.append("")
+        else:
+            lines += _table(findings)
+            lines.append("")
     else:
         lines += ["## Findings", "", "No conflicts found.", ""]
 
     return "\n".join(lines).rstrip() + "\n"
+
+
+def is_process_finding(finding: Finding) -> bool:
+    """Step rules answer 'did the process match?'; everything else answers 'did the
+    words match?'. Keeping the families disjoint is what lets the report split them."""
+    return finding.discrepancy.rule_id.startswith("R-STEP-")
+
+
+def _table(findings: Sequence[Finding]) -> list[str]:
+    lines = [
+        "| Severity | Rule | Subject | Said | Seen | When | Status |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    lines += [_finding_row(finding) for finding in findings]
+    return lines
 
 
 def _finding_row(finding: Finding) -> str:

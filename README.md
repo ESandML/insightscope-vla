@@ -6,14 +6,20 @@ they did, and reports where the two disagree — with the exact frames that prov
 Built for a kitchen counter, a workbench, or a lab bench: a phone clip, a local model via
 Ollama, and a SQLite file. No cloud calls required.
 
-## Four input modes
+## Input modes
+
+Speech and reference are independent decisions:
 
 ```text
-speech source                              reference source
-  1 listen      clip audio ──► faster-whisper        (none)
-  2 transcript  .json / .txt                         (none)
-  3 process     (audio ignored)   plain English ──► LLM ──► YAML spec
-  4 spec        (audio ignored)                       YAML spec ──► loaded
+speech source                          reference source        mode
+  listen      clip audio ──► whisper          (none)           1. listen
+  transcript  .json / .txt                    (none)           2. transcript
+  none        (audio ignored)                 process ─► spec  3. process text
+  none        (audio ignored)                 spec             4. spec
+
+hybrids, when speech is chosen explicitly with --listen or --transcript:
+  listen      clip audio ──► whisper          process / spec   audio + process|spec
+  transcript  .json / .txt                    process / spec   transcript + process|spec
 
                         claims + spec expectations
                                   │
@@ -26,8 +32,13 @@ clip.mp4 ──► OpenCV keyframes ──► vision model ──► observation
                                   └──► flagged frames + audit log
 ```
 
-Whisper runs in **mode 1 only**. Modes 2–4 never decode audio. A transcript may accompany
-a spec, in which case its claims join the spec's expectations rather than replacing them.
+`--process` and `--spec` default to **silent**: they ignore the audio unless you add
+`--listen`. Whisper therefore runs when speech is `listen`, which by default means "no
+spec reference" — and with `--listen` it runs alongside a spec too.
+
+Spec runs split the report into `### Process / Spec Compliance` (step rules) and
+`### Speech / Transcript Verification` (everything else), so a missing step and a wrong
+claim never share a table. Open-ended runs keep one table.
 
 An **audit spec** is a YAML file: expected objects, aliases, and ordered steps. A
 **process description** is the plain-English version of the same thing; mode 3 asks a
@@ -82,6 +93,10 @@ insightscope audit clip.mp4 \
 insightscope spec new "fill the kettle, boil, spoon coffee, pour, stir" -o coffee.yaml
 insightscope audit clip.mp4 --spec coffee.yaml --client ollama
 insightscope audit clip.mp4 --spec coffee.yaml --transcript transcript.json
+
+# Hybrids: transcribe the audio *and* check it against a spec.
+insightscope audit clip.mp4 --listen --spec coffee.yaml --client ollama
+insightscope audit clip.mp4 --listen --process "fill the kettle, pour water" --client ollama
 ```
 
 `--checklist` still works as an alias for `--spec`, and `insightscope checklist new` as an

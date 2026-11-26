@@ -1,20 +1,16 @@
 """Command line entry point.
 
-Input routing for ``audit``:
+Input routing for ``audit`` has two independent axes:
 
-* **Speech source** — ``--transcript`` uses a file; otherwise, when there is no spec
-  reference, the clip's audio is transcribed with faster-whisper.
-* **Reference source** — ``--spec`` loads a YAML audit spec; ``--process`` or
-  ``--process-file`` turns a plain-English description into one (saved for review).
-  These are mutually exclusive with each other, and both skip Whisper. A transcript
-  may accompany a spec: its claims are added to the spec's expectations.
+* **Speech** — ``--transcript`` (file) or the clip's audio via faster-whisper
+  (``--listen``). With no flags, audio is transcribed only when there is no spec.
+  ``--listen`` forces transcription even alongside ``--process``/``--spec``.
+* **Reference** — ``--spec`` loads a YAML audit spec; ``--process``/``--process-file``
+  turns a plain-English description into one (saved for review). These are mutually
+  exclusive with each other and never call Whisper on their own.
 
-Resulting modes:
-
-1. **Listen** (default): Whisper → open-ended claims.
-2. **Transcript** (``--transcript``): file claims, no audio decoding.
-3. **Process text** (``--process`` / ``--process-file``): generated spec, no Whisper.
-4. **Spec** (``--spec``, alias ``--checklist``): YAML spec, no Whisper.
+That yields four single modes (listen, transcript, process, spec) and four hybrids
+(audio+process, audio+spec, transcript+process, transcript+spec).
 
 ``insightscope spec new "..." -o task.yaml`` drafts an audit spec: the model proposes,
 you inspect and edit, then pass it back with ``--spec``.
@@ -28,6 +24,7 @@ import hashlib
 import json
 import sys
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
@@ -56,7 +53,26 @@ from insightscope.telemetry.whisper import (
     transcribe,
 )
 
-InputMode = Literal["listen", "transcript", "process", "spec"]
+InputMode = Literal["listen", "transcript", "process", "spec", "hybrid"]
+SpeechSource = Literal["listen", "transcript", "none"]
+ReferenceSource = Literal["none", "process", "spec"]
+
+
+@dataclass(frozen=True, slots=True)
+class InputPlan:
+    """Speech source and reference source, decided independently.
+
+    Speech defaults to silence when a spec reference is present, and to Whisper
+    otherwise. ``--listen`` overrides the default, which is what makes the four hybrid
+    combinations (audio+process, audio+spec, transcript+process, transcript+spec) work.
+    """
+
+    speech: SpeechSource
+    reference: ReferenceSource
+
+    @property
+    def is_hybrid(self) -> bool:
+        return self.speech != "none" and self.reference != "none"
 
 
 class CliError(RuntimeError):
@@ -118,10 +134,18 @@ def build_parser() -> argparse.ArgumentParser:
         default="small.en",
         help="speech-to-text model for listen mode",
     )
-    audit.add_argument(
+
+    # Speech source: a file, or the clip's audio. At most one.
+    speech = audit.add_mutually_exclusive_group()
+    speech.add_argument(
         "--transcript",
         type=Path,
-        help=".json or .txt transcript; skips speech-to-text and may accompany a spec",
+        help=".json or .txt transcript; skips speech-to-text",
+    )
+    speech.add_argument(
+        "--listen",
+        action="store_true",
+        help="transcribe the audio even when --process/--spec is given (hybrid run)",
     )
 
     # One reference source, or none. Transcript is orthogonal: it changes where the
@@ -226,9 +250,9 @@ def _audit_command(args: argparse.Namespace) -> int:
     duration = video_duration(clip)
 
     text_client, vision_client, generator = _clients(args)
-    mode = _input_mode(args)
+    plan = _input_plan(args)
     spec, generated = _resolve_spec(args, generator)
-    bundle = _transcript_for_audit(args, clip, duration, mode)
+    bundle = _transcript_for_audit(args, clip, duration, plan)
 
     config = RunConfig(
         keyframes=_keyframe_config(args),
@@ -238,7 +262,7 @@ def _audit_command(args: argparse.Namespace) -> int:
         db_path=args.db,
         models=_model_choice(args),
     )
-    run_id = _run_id(clip, config, mode=mode, bundle=bundle)
+    run_id = _run_id(clip, config, plan=plan, bundle=bundle)
     run_dir = config.artifacts_dir / run_id
 
     generated_path: Path | None = None
@@ -276,7 +300,7 @@ def _audit_command(args: argparse.Namespace) -> int:
     report_path.write_text(report.markdown, encoding="utf-8")
 
     print(f"run:       {run_id}")
-    print(f"input:     {_describe_mode(mode, args, bundle, spec, generated_path)}")
+    print(f"input:     {_describe_mode(plan, args, bundle, spec, generated_path)}")
     print(f"status:    {report.status}")
     print(f"keyframes: {len(keyframes)}")
     print(f"claims:    {len(final.get('claims') or [])}")
@@ -300,14 +324,31 @@ def _spec_new_command(args: argparse.Namespace) -> int:
     return 0
 
 
-def _input_mode(args: argparse.Namespace) -> InputMode:
+def _input_plan(args: argparse.Namespace) -> InputPlan:
+    """Decide speech and reference independently, then report the combination."""
     if args.process is not None or args.process_file is not None:
-        return "process"
-    if args.spec is not None:
-        return "spec"
+        reference: ReferenceSource = "process"
+    elif args.spec is not None:
+        reference = "spec"
+    else:
+        reference = "none"
+
     if args.transcript is not None:
-        return "transcript"
-    return "listen"
+        speech: SpeechSource = "transcript"
+    elif args.listen or reference == "none":
+        speech = "listen"
+    else:
+        speech = "none"
+
+    return InputPlan(speech=speech, reference=reference)
+
+
+def _input_mode(plan: InputPlan) -> InputMode:
+    if plan.is_hybrid:
+        return "hybrid"
+    if plan.reference != "none":
+        return plan.reference
+    return "transcript" if plan.speech == "transcript" else "listen"
 
 
 def _resolve_spec(args: argparse.Namespace, generator: Any) -> tuple[ChecklistSpec | None, bool]:
@@ -331,31 +372,41 @@ def _resolve_spec(args: argparse.Namespace, generator: Any) -> tuple[ChecklistSp
 
 
 def _transcript_for_audit(
-    args: argparse.Namespace, clip: Path, duration: float, mode: InputMode
+    args: argparse.Namespace, clip: Path, duration: float, plan: InputPlan
 ) -> TranscriptBundle:
-    if args.transcript is not None:
+    if plan.speech == "transcript":
         return load_transcript(args.transcript, duration_s=duration)
-    if mode in ("process", "spec"):
-        return TranscriptBundle(utterances=(), mode="none")
-    return transcribe(clip, model_size=args.whisper_model)
+    if plan.speech == "listen":
+        return transcribe(clip, model_size=args.whisper_model)
+    return TranscriptBundle(utterances=(), mode="none")
 
 
 def _describe_mode(
-    mode: InputMode,
+    plan: InputPlan,
     args: argparse.Namespace,
     bundle: TranscriptBundle,
     spec: ChecklistSpec | None,
     generated_path: Path | None,
 ) -> str:
-    if mode == "listen":
-        return f"listen (whisper {args.whisper_model}, {len(bundle.utterances)} segments)"
-    if mode == "transcript":
-        return f"transcript ({bundle.mode}, {len(bundle.utterances)} segments)"
-    if mode == "process":
-        name = spec.name if spec is not None else "?"
-        return f"process text → spec {name} ({generated_path})"
     name = spec.name if spec is not None else "?"
-    return f"spec {name} ({args.spec})"
+
+    if plan.reference == "spec":
+        reference = f"spec {name} ({args.spec})"
+    elif plan.reference == "process":
+        reference = f"process text → spec {name} ({generated_path})"
+    else:
+        reference = ""
+
+    if plan.reference == "none":
+        if plan.speech == "transcript":
+            return f"transcript ({bundle.mode}, {len(bundle.utterances)} segments)"
+        return f"listen (whisper {args.whisper_model}, {len(bundle.utterances)} segments)"
+
+    if plan.speech == "none":
+        return reference
+
+    speech_label = "listen" if plan.speech == "listen" else "transcript"
+    return f"hybrid ({speech_label} + {reference})"
 
 
 def _clients(args: argparse.Namespace) -> tuple[Any, Any, Any]:
@@ -432,15 +483,15 @@ def _describe_clients(args: argparse.Namespace) -> str:
     return f"ollama at {target}"
 
 
-def _run_id(clip: Path, config: RunConfig, *, mode: InputMode, bundle: TranscriptBundle) -> str:
-    """Stable per (clip, settings, input mode, transcript content)."""
+def _run_id(clip: Path, config: RunConfig, *, plan: InputPlan, bundle: TranscriptBundle) -> str:
+    """Stable per (clip, settings, input plan, transcript content)."""
     return (
         f"run-{_slug(clip.stem)}-{_file_digest(clip)[:8]}"
-        f"-{_config_fingerprint(config, mode=mode, bundle=bundle)}"
+        f"-{_config_fingerprint(config, plan=plan, bundle=bundle)}"
     )
 
 
-def _config_fingerprint(config: RunConfig, *, mode: InputMode, bundle: TranscriptBundle) -> str:
+def _config_fingerprint(config: RunConfig, *, plan: InputPlan, bundle: TranscriptBundle) -> str:
     payload = {
         "checklist": config.checklist.name if config.checklist else None,
         "flag_omissions": config.flag_omissions,
@@ -448,7 +499,11 @@ def _config_fingerprint(config: RunConfig, *, mode: InputMode, bundle: Transcrip
         "tolerance_s": config.alignment.tolerance_s,
         "text_model": config.models.text,
         "vision_model": config.models.vision,
-        "input_mode": mode,
+        "input": {
+            "mode": _input_mode(plan),
+            "speech": plan.speech,
+            "reference": plan.reference,
+        },
         "transcript": [utterance.utterance_id for utterance in bundle.utterances],
     }
     encoded = json.dumps(payload, sort_keys=True).encode()
