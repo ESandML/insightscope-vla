@@ -28,11 +28,38 @@ Two consequences worth stating out loud:
 `reconcile/` must not import `clients/` or `graph/`. `contracts/` must not import `graph/`.
 This is enforced by an import-linter contract in CI, not by good intentions.
 
+## Input modes
+
+| Mode | Flag | Speech | Reference |
+| --- | --- | --- | --- |
+| Listen (default) | none | faster-whisper | open-ended claims |
+| Transcript | `--transcript FILE` | file (`.json` / `.txt`) | open-ended claims |
+| Process text | `--process` / `--process-file` | none (audio ignored) | LLM → YAML spec |
+| Spec | `--spec` (alias `--checklist`) | none (audio ignored) | YAML spec loaded |
+| Audio + process | `--listen --process` | faster-whisper | LLM → YAML spec |
+| Audio + spec | `--listen --spec` | faster-whisper | YAML spec loaded |
+| Transcript + process | `--transcript FILE --process` | file | LLM → YAML spec |
+| Transcript + spec | `--transcript FILE --spec` | file | YAML spec loaded |
+
+Speech and reference are independent axes. `--process`/`--process-file`/`--spec` are
+mutually exclusive as references, and `--listen`/`--transcript` are mutually exclusive as
+speech sources. `--process` and `--spec` default to silence; `--listen` forces Whisper
+even when a spec reference is present, which produces the four hybrid modes.
+
+Whisper is gated by one branch in the CLI: it runs when the speech source is `listen`,
+which by default means "no spec reference". Hybrid runs are reported as
+`hybrid (listen + spec make_coffee)`, never as one of the single modes.
+
+A **process description** is plain English. An **audit spec** is the validated YAML
+(`ChecklistSpec`). Generation is a separate, inspectable step: mode 3 writes the spec to
+`artifacts/<run_id>/generated_spec.yaml`, so a human approves the model's interpretation
+before it drives an audit.
+
 ## Graph
 
 ```text
-ingest ─► extract_claims (fan-out per utterance) ─► build_subject_registry
-       ─► extract_observations (fan-out per keyframe, targeted by the registry)
+ingest ─► [speech source] ─► extract_claims ─► build_subject_registry
+       ─► extract_observations (keyframes; targets = claims + spec)
        ─► resolve_references (pure) ─► align ─► reconcile ─► synthesize
                                                                  │
                                             validate ─► critique ─┤
@@ -49,10 +76,13 @@ ingest ─► extract_claims (fan-out per utterance) ─► build_subject_regist
                  END
 ```
 
-Claims are extracted **before** vision runs, because open-ended discovery means the
-vision step needs a list of subjects to verify. That costs parallelism and buys targeted
-questions ("is the laptop closed?") instead of "describe everything", which is both
-cheaper and easier to test.
+Claims are extracted **before** vision runs, because the vision step needs a list of
+subjects to verify. That costs parallelism and buys targeted questions ("is the kettle on
+its base?") instead of "describe everything", which is both cheaper and easier to test.
+
+In Process and Spec modes there may be no speech at all. The spec supplies the targets
+instead: expected objects at `presence`, steps at `step_completed`. A silent clip still
+gets a meaningful audit rather than an empty one.
 
 Fan-out happens *inside* the two extraction nodes (`asyncio.gather` bounded by a
 semaphore), not through LangGraph's `Send`. At 12 keyframes per-item checkpointing
@@ -62,10 +92,10 @@ if a run ever needs to resume halfway through a large keyframe set.
 `dispatch_actions` is terminal on purpose: a failed file write must never look like a
 critic finding and re-enter the retry loop.
 
-## Open-ended mode
+## Subjects, specs, and expectations
 
-By default there is no checklist, so the pipeline audits whatever the transcript talks
-about. Three rules keep that deterministic:
+Without a spec the pipeline audits whatever the transcript talks about. Three rules keep
+that deterministic:
 
 - **Subjects are open, attributes are closed.** `subject_id` is produced by code
   (lowercase, strip articles, apply aliases), so two spellings join only when an alias
@@ -74,8 +104,17 @@ about. Three rules keep that deterministic:
   `unspecified_target`. The vision model may propose which object the speaker is
   touching; a pure Python step binds the claim only when exactly one candidate exists.
   Zero or several candidates produce an `unresolved_reference` finding.
-- **Expectations are optional.** A checklist enables the step rules (order, missing
-  steps, completion). Without one those rules are skipped, not emulated.
+- **Expectations are optional.** A spec enables the step rules (order, missing steps,
+  completion). Without one those rules are skipped, not emulated.
+
+With a spec, two more things happen:
+
+- **Vision targets come from the spec as well as the claims.** Expected objects are
+  checked at `presence`, steps at `step_completed`. A silent Process/Spec run therefore
+  still asks the camera concrete questions.
+- **Step order can be verified visually.** `R-STEP-002` uses spoken claims when they
+  exist; otherwise it orders the first `step_completed=True` observation per step by
+  keyframe timestamp. A silent video that pours before filling is still a violation.
 
 Omission detection (`seen but never mentioned`) is off by default: casual footage has
 too much background motion, and a report full of "you moved a chair" is a report nobody
@@ -96,8 +135,8 @@ One `TypedDict` (`graph/state.py`) is the only channel between nodes.
 
 ## Evidence and absence
 
-Keyframe selection is motion-based, which is blind to objects that never move. A mug that
-sits still for the whole clip would otherwise generate a false "said but never seen"
+Keyframe selection is motion-based, which is blind to objects that never move. A kettle
+that sits still for the whole clip would otherwise generate a false "said but never seen"
 finding.
 
 Two mechanisms prevent that:
@@ -119,6 +158,20 @@ Gate order, highest priority first:
 4. Budget exhausted with blockers → degrade to `complete_with_caveats`, emit
    `insufficient_evidence` findings, finish.
 5. Fatal error → `failed`, partial report, error ledger.
+
+## Report layout
+
+Findings answer two different questions, so a spec run keeps them apart:
+
+- `### Process / Spec Compliance` — rules `R-STEP-*`: was every step done, in order, with
+  visual support?
+- `### Speech / Transcript Verification` — everything else: does what was said match what
+  was seen?
+
+`render_markdown` splits when `has_spec` is set or when both families have findings, and
+names an empty section explicitly ("No deviations from the spec.") rather than hiding it.
+Pure open-ended runs keep the single `## Findings` table, which is why the golden report
+fixture is stable.
 
 ## Timing
 

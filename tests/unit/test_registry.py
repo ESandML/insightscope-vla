@@ -7,7 +7,7 @@ from insightscope.domain.models import Assertion, Provenance, TimeSpan, make_ass
 from insightscope.domain.ontology import Attribute
 from insightscope.domain.registry import SubjectRegistry
 
-FIXTURE = Path(__file__).parent.parent / "fixtures" / "checklists" / "desk.yaml"
+FIXTURE = Path(__file__).parent.parent / "fixtures" / "checklists" / "make_coffee.yaml"
 
 
 def assertion(subject: str, modality: str, start: float = 0.0) -> Assertion:
@@ -33,8 +33,8 @@ def test_open_ended_registry_only_knows_what_was_mentioned() -> None:
 def test_checklist_seeds_expected_subjects() -> None:
     checklist = load_checklist(FIXTURE)
     registry = SubjectRegistry.build(checklist=checklist)
-    assert "coffee_mug" in registry.expected_ids()
-    assert "close_laptop" in registry.expected_ids()
+    assert "mug" in registry.expected_ids()
+    assert "fill_kettle" in registry.expected_ids()
     assert registry.expected_not_done  # nothing claimed yet
 
 
@@ -51,9 +51,9 @@ def test_seen_and_said_are_tracked_separately() -> None:
 def test_checklist_plus_transcript_merges_by_canonical_id() -> None:
     checklist = load_checklist(FIXTURE)
     registry = SubjectRegistry.build(
-        said=[assertion("coffee_mug", "acoustic")],
-        seen=[assertion("coffee_mug", "vision")],
+        said=[assertion("mug", "acoustic")],
+        seen=[assertion("mug", "vision")],
         checklist=checklist,
     )
-    assert registry.refs["coffee_mug"].said and registry.refs["coffee_mug"].seen
-    assert registry.refs["coffee_mug"].expected
+    assert registry.refs["mug"].said and registry.refs["mug"].seen
+    assert registry.refs["mug"].expected

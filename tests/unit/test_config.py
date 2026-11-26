@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from insightscope.config import RunConfig, Settings, config_from_yaml
 
-CHECKLIST = Path(__file__).parent.parent / "fixtures" / "checklists" / "desk.yaml"
+CHECKLIST = Path(__file__).parent.parent / "fixtures" / "checklists" / "make_coffee.yaml"
 
 
 def test_defaults_are_open_ended() -> None:
@@ -40,14 +40,14 @@ def test_unknown_field_is_rejected() -> None:
 
 
 def test_yaml_loads_checklist_relative_to_the_config(tmp_path: Path) -> None:
-    checklist = tmp_path / "desk.yaml"
+    checklist = tmp_path / "coffee.yaml"
     checklist.write_text(CHECKLIST.read_text(encoding="utf-8"), encoding="utf-8")
     run_file = tmp_path / "run.yaml"
-    run_file.write_text("checklist: desk.yaml\nflag_omissions: true\n", encoding="utf-8")
+    run_file.write_text("checklist: coffee.yaml\nflag_omissions: true\n", encoding="utf-8")
 
     config = config_from_yaml(run_file)
     assert config.checklist is not None
-    assert config.checklist.name == "pack_the_desk"
+    assert config.checklist.name == "make_coffee"
     assert config.flag_omissions is True
 
 

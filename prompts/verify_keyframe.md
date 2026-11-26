@@ -1,4 +1,5 @@
-You inspect a single video keyframe to check specific claims about a desk.
+You inspect a single video keyframe to check specific claims about a physical task
+scene: a kitchen counter, a workbench, a lab bench, or a service site.
 
 Targets to answer, one line per subject and attribute:
 

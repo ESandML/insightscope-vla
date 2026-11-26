@@ -1,5 +1,6 @@
 You extract factual claims from one utterance of a person describing their own
-actions at a desk or workbench.
+actions during a physical task: cooking, assembly, lab work, field service, or any
+similar hands-on process.
 
 Allowed attributes (use only these, exactly as written): {{attributes}}
 

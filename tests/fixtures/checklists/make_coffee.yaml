@@ -1,0 +1,24 @@
+name: make_coffee
+description: Brew a coffee at the kitchen counter.
+expected_objects:
+  - kettle
+  - mug
+  - coffee_jar
+  - spoon
+  - counter
+aliases:
+  kettle: [electric kettle, jug]
+  mug: [cup, coffee cup]
+  coffee_jar: [coffee tin, coffee canister]
+  spoon: [teaspoon]
+steps:
+  - step_id: fill_kettle
+    description: Fill the kettle with water
+  - step_id: boil_kettle
+    description: Switch the kettle on
+  - step_id: spoon_coffee
+    description: Put coffee into the mug
+  - step_id: pour_water
+    description: Pour the hot water into the mug
+  - step_id: stir_coffee
+    description: Stir the coffee

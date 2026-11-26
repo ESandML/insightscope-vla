@@ -16,11 +16,12 @@ from insightscope.clients.fake import FakeTextClient, FakeVisionClient, draft_ci
 from insightscope.config import LoopConfig, RunConfig
 from insightscope.contracts.extraction import ClaimItem, KeyframeAnalysis, VerifiedClaim
 from insightscope.contracts.report import Critique, Issue, ReportDraft
+from insightscope.domain.checklist import ChecklistSpec, StepSpec
 from insightscope.domain.models import EvidenceManifest, KeyframeRef, TimeSpan, Utterance
 from insightscope.domain.ontology import Attribute
 from insightscope.graph.build import build_graph
 
-GOLDEN = Path(__file__).parent.parent / "fixtures" / "reports" / "desk_report.md"
+GOLDEN = Path(__file__).parent.parent / "fixtures" / "reports" / "audit_report.md"
 UTTERANCE_TEXT = "I closed the laptop"
 
 
@@ -106,6 +107,7 @@ async def run(
     vision: FakeVisionClient | None = None,
     run_config: RunConfig | None = None,
     run_id: str = "run-test",
+    ev: EvidenceManifest | None = None,
 ) -> dict:
     graph = build_graph(
         text_client=text or text_client(),
@@ -115,7 +117,7 @@ async def run(
         {
             "run_id": run_id,
             "config": run_config or config(tmp_path),
-            "evidence": evidence(tmp_path),
+            "evidence": ev if ev is not None else evidence(tmp_path),
         }
     )
 
@@ -264,3 +266,102 @@ async def test_golden_report_matches_fixture(tmp_path: Path) -> None:
     final = await run(tmp_path, run_id="run-golden")
     expected = GOLDEN.read_text(encoding="utf-8")
     assert final["report"].markdown == expected
+
+
+def silent_evidence(tmp_path: Path, spans: list[tuple[float, float]]) -> EvidenceManifest:
+    """A clip with no speech at all: Process/Spec mode with the audio ignored."""
+    keyframes = []
+    for index, (start, end) in enumerate(spans):
+        frame = tmp_path / f"kf_{index:04d}.jpg"
+        assert cv2.imwrite(str(frame), np.zeros((120, 160, 3), dtype=np.uint8))
+        keyframes.append(
+            KeyframeRef(
+                keyframe_id=f"kf_{index:04d}",
+                uri=str(frame),
+                sha256=f"sha-kf-{index:04d}",
+                span=TimeSpan(t_start_s=start, t_end_s=end),
+                reason="motion",
+                width=160,
+                height=120,
+            )
+        )
+    return EvidenceManifest(
+        bundle_id="coffee",
+        source_path="coffee.mp4",
+        duration_s=60.0,
+        keyframes=tuple(keyframes),
+        utterances=(),
+        transcript_mode="none",
+    )
+
+
+async def test_spec_fills_targets_for_a_silent_clip(tmp_path: Path) -> None:
+    spec = ChecklistSpec(
+        name="make_coffee",
+        expected_objects=["kettle", "mug"],
+        steps=[StepSpec(step_id="fill_kettle")],
+    )
+    vision = FakeVisionClient()
+    graph = build_graph(text_client=FakeTextClient(), vision_client=vision)
+
+    await graph.ainvoke(
+        {
+            "run_id": "run-silent",
+            "config": config(tmp_path, checklist=spec),
+            "evidence": silent_evidence(tmp_path, [(1.0, 2.0)]),
+        }
+    )
+
+    targets = vision.requests[0].targets
+    assert ("kettle", Attribute.PRESENCE) in targets
+    assert ("mug", Attribute.PRESENCE) in targets
+    assert ("fill_kettle", Attribute.STEP_COMPLETED) in targets
+
+
+async def test_silent_clip_can_violate_step_order_visually(tmp_path: Path) -> None:
+    spec = ChecklistSpec(
+        name="make_coffee",
+        expected_objects=["kettle"],
+        steps=[StepSpec(step_id="fill_kettle"), StepSpec(step_id="pour_water")],
+    )
+    vision = FakeVisionClient(
+        analyses={
+            "kf_0000": KeyframeAnalysis(
+                keyframe_id="kf_0000",
+                verified=[
+                    {
+                        "subject": "pour_water",
+                        "attribute": "step_completed",
+                        "value": True,
+                        "confidence": 0.9,
+                    }
+                ],
+            ),
+            "kf_0001": KeyframeAnalysis(
+                keyframe_id="kf_0001",
+                verified=[
+                    {
+                        "subject": "fill_kettle",
+                        "attribute": "step_completed",
+                        "value": True,
+                        "confidence": 0.9,
+                    }
+                ],
+            ),
+        }
+    )
+
+    final = await run(
+        tmp_path,
+        vision=vision,
+        run_config=config(tmp_path, checklist=spec),
+        run_id="run-silent-order",
+        ev=silent_evidence(tmp_path, [(1.0, 2.0), (3.0, 4.0)]),
+    )
+
+    findings = final["report"].findings
+    assert [finding.discrepancy.rule_id for finding in findings] == ["R-STEP-002"]
+    assert findings[0].discrepancy.span_seen is not None
+    assert findings[0].discrepancy.span_seen.t_start_s == 1.0
+    assert findings[0].discrepancy.kind == "sequence_violation"
+    assert final["report"].status == "complete"
