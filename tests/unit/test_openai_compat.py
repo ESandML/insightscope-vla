@@ -100,7 +100,9 @@ async def test_analyse_embeds_a_base64_image(tmp_path: Path) -> None:
     ref = ref.model_copy(update={"uri": str(frame_path)})
 
     client, completions = build(KeyframeAnalysis(keyframe_id="kf_0001"))
-    await client.analyse(VisionRequest(keyframe=ref, targets=(("laptop", Attribute.OPEN_CLOSED),)))
+    await client.analyse(
+        VisionRequest(keyframe=ref, targets=(("laptop", Attribute.OPEN_CLOSED, None),))
+    )
 
     call = completions.calls[0]
     assert call["model"] == "vision-test"

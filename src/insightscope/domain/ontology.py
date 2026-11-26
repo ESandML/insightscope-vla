@@ -28,11 +28,16 @@ class Attribute(StrEnum):
     OPEN_CLOSED = "open_closed_state"
     LOCATION = "location"
     COUNT = "count"
+    ACTION_COMPLETED = "action_completed"
     STEP_COMPLETED = "step_completed"
 
     @property
     def subject_kind(self) -> Literal["object", "step"]:
-        """Steps are events, not objects; rules must never join across the two."""
+        """Steps are events, not objects; rules must never join across the two.
+
+        ``action_completed`` is an action *on an object* ("stir the coffee"), so it
+        stays on the object side. Only checklist steps are their own kind.
+        """
         if self is Attribute.STEP_COMPLETED:
             return "step"
         return "object"
@@ -84,13 +89,29 @@ def normalize_token(value: str) -> str:
     return token.strip("_")
 
 
+def normalize_action(value: str) -> str:
+    """Canonicalise a spoken action: ``Wipe the Counter`` -> ``wipe_the_counter``.
+
+    The action is part of the assertion identity, so this must be deterministic and
+    strict: an empty action is an error, not a wildcard.
+    """
+    token = normalize_token(value)
+    if not token:
+        raise OntologyError(f"empty action: {value!r}")
+    return token
+
+
 def coerce_value(attribute: Attribute, value: Any) -> AttributeValue:
     """Return the canonical value for ``attribute``, or raise.
 
     Models are allowed to be sloppy ("shut", "3", "yes") but not vague. An
     unreadable value is an error we can see and test, not something to guess at.
     """
-    if attribute in (Attribute.PRESENCE, Attribute.STEP_COMPLETED):
+    if attribute in (
+        Attribute.PRESENCE,
+        Attribute.ACTION_COMPLETED,
+        Attribute.STEP_COMPLETED,
+    ):
         return _coerce_bool(attribute, value)
     if attribute is Attribute.OPEN_CLOSED:
         return _coerce_open_closed(attribute, value)

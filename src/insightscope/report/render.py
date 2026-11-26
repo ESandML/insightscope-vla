@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from insightscope.domain.models import (
+    Discrepancy,
     EvidenceManifest,
     Finding,
     ReconcileStats,
@@ -106,9 +107,15 @@ def _finding_row(finding: Finding) -> str:
     )
     return (
         f"| {discrepancy.severity} | `{discrepancy.rule_id}` | "
-        f"{_cell(discrepancy.subject_id)} | {said} | {seen} | "
+        f"{_cell(_subject_label(discrepancy))} | {said} | {seen} | "
         f"{_when(finding)} | {finding.status} |"
     )
+
+
+def _subject_label(discrepancy: Discrepancy) -> str:
+    if discrepancy.action:
+        return f"{discrepancy.subject_id} ({discrepancy.action})"
+    return discrepancy.subject_id
 
 
 def _when(finding: Finding) -> str:

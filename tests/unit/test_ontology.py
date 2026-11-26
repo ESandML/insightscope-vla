@@ -2,7 +2,13 @@
 
 import pytest
 
-from insightscope.domain.ontology import Attribute, OntologyError, coerce_value, normalize_token
+from insightscope.domain.ontology import (
+    Attribute,
+    OntologyError,
+    coerce_value,
+    normalize_action,
+    normalize_token,
+)
 
 
 @pytest.mark.parametrize(
@@ -43,6 +49,24 @@ def test_unknown_value_is_an_error_not_a_guess() -> None:
 def test_step_attribute_is_not_an_object_property() -> None:
     assert Attribute.STEP_COMPLETED.subject_kind == "step"
     assert Attribute.PRESENCE.subject_kind == "object"
+
+
+@pytest.mark.parametrize(("raw", "expected"), [("done", True), ("no", False), (True, True)])
+def test_action_completed_uses_boolean_normalisation(raw: object, expected: bool) -> None:
+    assert coerce_value(Attribute.ACTION_COMPLETED, raw) is expected
+
+
+def test_action_completed_is_an_object_action_not_a_step() -> None:
+    assert Attribute.ACTION_COMPLETED.subject_kind == "object"
+
+
+def test_normalize_action_folds_case_and_spacing() -> None:
+    assert normalize_action("Wipe the Counter") == "wipe_the_counter"
+
+
+def test_empty_action_is_an_error() -> None:
+    with pytest.raises(OntologyError):
+        normalize_action("   ")
 
 
 def test_normalize_token_collapses_punctuation() -> None:

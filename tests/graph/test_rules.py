@@ -93,6 +93,40 @@ CASES: list[Case] = [
         expected={("R-LOC-001", "value_mismatch", "minor")},
     ),
     Case(
+        name="action agreed",
+        claims=[claim("coffee", Attribute.ACTION_COMPLETED, True, action="stir")],
+        observations=[observation("coffee", Attribute.ACTION_COMPLETED, True, action="stir")],
+        expected=set(),
+    ),
+    Case(
+        name="said action done but frames disagree",
+        claims=[claim("coffee", Attribute.ACTION_COMPLETED, True, action="stir")],
+        observations=[observation("coffee", Attribute.ACTION_COMPLETED, False, action="stir")],
+        expected={("R-ACT-001", "contradiction", "major")},
+    ),
+    Case(
+        name="said action not done but frames show it",
+        claims=[claim("coffee", Attribute.ACTION_COMPLETED, False, action="stir")],
+        observations=[observation("coffee", Attribute.ACTION_COMPLETED, True, action="stir")],
+        expected={("R-ACT-001", "contradiction", "major")},
+    ),
+    Case(
+        name="a different action is not a contradiction",
+        claims=[claim("kettle", Attribute.ACTION_COMPLETED, True, action="fill")],
+        observations=[observation("kettle", Attribute.ACTION_COMPLETED, True, action="pour")],
+        expected={("R-COVER-002", "insufficient_evidence", "info")},
+    ),
+    Case(
+        name="action claim outside observed time",
+        claims=[claim("coffee", Attribute.ACTION_COMPLETED, True, action="stir", start=100.0)],
+        expected={("R-COVER-001", "insufficient_evidence", "info")},
+    ),
+    Case(
+        name="action claim with no visual answer",
+        claims=[claim("coffee", Attribute.ACTION_COMPLETED, True, action="stir")],
+        expected={("R-COVER-002", "insufficient_evidence", "info")},
+    ),
+    Case(
         name="unobserved window is insufficient, never a contradiction",
         claims=[claim("laptop", Attribute.PRESENCE, True, start=100.0)],
         expected={("R-COVER-001", "insufficient_evidence", "info")},

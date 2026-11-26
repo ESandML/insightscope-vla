@@ -9,7 +9,11 @@ from tests.support import write_test_video
 
 from insightscope.actions.db import history
 from insightscope.cli import main
+from insightscope.clients.factory import ClientTriple
+from insightscope.clients.fake import FakeTextClient
+from insightscope.contracts.extraction import ClaimItem, KeyframeAnalysis, VerifiedClaim
 from insightscope.domain.models import TimeSpan, Utterance
+from insightscope.domain.ontology import Attribute
 from insightscope.telemetry.transcript_source import TranscriptBundle
 
 CHECKLIST = Path(__file__).parent.parent / "fixtures" / "checklists" / "make_coffee.yaml"
@@ -572,3 +576,61 @@ def test_audio_and_listen_are_mutually_exclusive(tmp_path: Path) -> None:
 
     with pytest.raises(SystemExit):
         main(audit_args(tmp_path, "--audio", str(voice), "--listen"))
+
+
+class ActionVision:
+    """Always reports the same action as not completed, for CLI wiring tests."""
+
+    def prompt_version(self, name: str) -> str:
+        return f"fake-{name}"
+
+    async def analyse(self, request: object) -> KeyframeAnalysis:
+        keyframe = request.keyframe  # type: ignore[attr-defined]
+        return KeyframeAnalysis(
+            keyframe_id=keyframe.keyframe_id,
+            verified=[
+                VerifiedClaim(
+                    subject="coffee",
+                    attribute=Attribute.ACTION_COMPLETED,
+                    action="stir",
+                    value=False,
+                    confidence=0.9,
+                )
+            ],
+        )
+
+
+def test_cli_verifies_spoken_actions_in_a_hybrid_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    text = "I stirred the coffee"
+    write_test_video(tmp_path / "clip.avi", flash_at=None)
+    transcript = tmp_path / "t.json"
+    transcript.write_text(
+        json.dumps([{"t_start_s": 1.0, "t_end_s": 2.0, "text": text}]),
+        encoding="utf-8",
+    )
+
+    fake_text = FakeTextClient(
+        claims={
+            text: [
+                ClaimItem(
+                    subject="coffee",
+                    attribute=Attribute.ACTION_COMPLETED,
+                    action="stir",
+                    value=True,
+                    quote=text,
+                )
+            ]
+        }
+    )
+    triple = ClientTriple(text=fake_text, vision=ActionVision(), generator=fake_text)
+    monkeypatch.setattr("insightscope.cli.build_clients", lambda **kwargs: triple)
+
+    code = main(audit_args(tmp_path, "--transcript", str(transcript), "--spec", str(CHECKLIST)))
+
+    assert code == 0
+    report = next((tmp_path / "artifacts").glob("*/report.md")).read_text(encoding="utf-8")
+    assert "R-ACT-001" in report
+    assert "### Process / Spec Compliance" in report
+    assert "### Speech / Transcript Verification" in report

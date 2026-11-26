@@ -10,6 +10,7 @@ from insightscope.domain.models import (
     Provenance,
     TimeSpan,
     make_assertion_id,
+    make_discrepancy_id,
     merge_spans,
 )
 from insightscope.domain.ontology import Attribute
@@ -68,6 +69,69 @@ def test_assertion_ids_are_deterministic() -> None:
 
     different = make_assertion(value="open")
     assert different.assertion_id != first.assertion_id
+
+
+def action_assertion(action: str, value: bool = True) -> Assertion:
+    span = TimeSpan(t_start_s=10.0, t_end_s=11.0)
+    return Assertion(
+        assertion_id=make_assertion_id(
+            "acoustic", "kettle", Attribute.ACTION_COMPLETED, value, span, action
+        ),
+        modality="acoustic",
+        subject_id="kettle",
+        attribute=Attribute.ACTION_COMPLETED,
+        action=action,
+        value=value,
+        span=span,
+        provenance=Provenance(model="fake"),
+    )
+
+
+def test_action_is_required_for_action_completed() -> None:
+    with pytest.raises(ValidationError, match="action is required"):
+        Assertion(
+            assertion_id="a" * 12,
+            modality="acoustic",
+            subject_id="kettle",
+            attribute=Attribute.ACTION_COMPLETED,
+            value=True,
+            span=span(0, 1),
+            provenance=Provenance(model="fake"),
+        )
+
+
+def test_action_is_rejected_for_other_attributes() -> None:
+    with pytest.raises(ValidationError, match="only valid for action_completed"):
+        Assertion(
+            assertion_id="a" * 12,
+            modality="acoustic",
+            subject_id="kettle",
+            attribute=Attribute.PRESENCE,
+            action="fill",
+            value=True,
+            span=span(0, 1),
+            provenance=Provenance(model="fake"),
+        )
+
+
+def test_action_is_normalised() -> None:
+    assertion = action_assertion("Wipe Counter")
+    assert assertion.action == "wipe_counter"
+
+
+def test_same_subject_different_actions_do_not_collide() -> None:
+    fill = action_assertion("fill")
+    pour = action_assertion("pour")
+    assert fill.assertion_id != pour.assertion_id
+
+    time_span = TimeSpan(t_start_s=10.0, t_end_s=11.0)
+    fill_id = make_discrepancy_id(
+        "R-ACT-001", "kettle", Attribute.ACTION_COMPLETED, time_span, None, "fill"
+    )
+    pour_id = make_discrepancy_id(
+        "R-ACT-001", "kettle", Attribute.ACTION_COMPLETED, time_span, None, "pour"
+    )
+    assert fill_id != pour_id
 
 
 def test_subject_kind_follows_attribute() -> None:

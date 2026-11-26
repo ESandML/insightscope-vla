@@ -14,7 +14,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
-from insightscope.domain.ontology import Attribute, AttributeValue, coerce_value
+from insightscope.domain.ontology import Attribute, AttributeValue, coerce_value, normalize_action
 
 Severity = Literal["blocker", "major", "minor", "info"]
 DiscrepancyKind = Literal[
@@ -171,11 +171,28 @@ class Assertion(BaseModel):
     modality: Modality
     subject_id: str = Field(min_length=1)
     attribute: Attribute
+    action: str | None = None
     value: AttributeValue
     span: TimeSpan
     evidence_refs: tuple[str, ...] = ()
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     provenance: Provenance
+
+    @field_validator("action")
+    @classmethod
+    def _canonical_action(cls, value: str | None, info: ValidationInfo) -> str | None:
+        if value is None:
+            return None
+        attribute = info.data.get("attribute")
+        if not isinstance(attribute, Attribute) or attribute is not Attribute.ACTION_COMPLETED:
+            raise ValueError("action is only valid for action_completed")
+        return normalize_action(value)
+
+    @model_validator(mode="after")
+    def _action_required(self) -> Assertion:
+        if self.attribute is Attribute.ACTION_COMPLETED and not self.action:
+            raise ValueError("action is required when attribute is action_completed")
+        return self
 
     @field_validator("value")
     @classmethod
@@ -197,11 +214,13 @@ def make_assertion_id(
     attribute: Attribute,
     value: AttributeValue,
     span: TimeSpan,
+    action: str | None = None,
 ) -> str:
     return _hash(
         modality,
         subject_id,
         attribute.value,
+        action or "",
         repr(value),
         f"{span.t_start_s:.3f}",
         f"{span.t_end_s:.3f}",
@@ -230,6 +249,7 @@ class Discrepancy(BaseModel):
     severity: Severity
     subject_id: str = Field(min_length=1)
     attribute: Attribute | None = None
+    action: str | None = None
     span_seen: TimeSpan | None = None
     span_said: TimeSpan | None = None
     evidence_refs: tuple[str, ...] = ()
@@ -245,11 +265,13 @@ def make_discrepancy_id(
     attribute: Attribute | None,
     span_said: TimeSpan | None,
     span_seen: TimeSpan | None,
+    action: str | None = None,
 ) -> str:
     return _hash(
         rule_id,
         subject_id,
         attribute.value if attribute else "",
+        action or "",
         f"{span_said.t_start_s:.3f}" if span_said else "",
         f"{span_seen.t_start_s:.3f}" if span_seen else "",
     )

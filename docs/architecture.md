@@ -115,12 +115,21 @@ that deterministic:
 - **Subjects are open, attributes are closed.** `subject_id` is produced by code
   (lowercase, strip articles, apply aliases), so two spellings join only when an alias
   says they should. Unknown names are kept as their own subject, never fuzzy-matched.
+  The closed attribute set is `presence`, `open_closed_state`, `location`, `count`,
+  `action_completed`, `step_completed`.
 - **Pronouns are deferred, not guessed.** "I closed this" becomes a claim with subject
   `unspecified_target`. The vision model may propose which object the speaker is
   touching; a pure Python step binds the claim only when exactly one candidate exists.
   Zero or several candidates produce an `unresolved_reference` finding.
 - **Expectations are optional.** A spec enables the step rules (order, missing steps,
   completion). Without one those rules are skipped, not emulated.
+
+Actions that leave no static state are first-class without a spec. A claim carries
+`action_completed` plus a normalised action name ("stir", "wipe_counter"), and
+`R-ACT-001` compares it with aligned observations for the same `(subject, action)`.
+Alignment includes the action in its key, so a "fill" claim can never be checked against
+a "pour" frame. Listen and Transcript modes therefore verify spoken actions the way Spec
+mode verifies steps.
 
 With a spec, two more things happen:
 
@@ -180,8 +189,8 @@ Findings answer two different questions, so a spec run keeps them apart:
 
 - `### Process / Spec Compliance` — rules `R-STEP-*`: was every step done, in order, with
   visual support?
-- `### Speech / Transcript Verification` — everything else: does what was said match what
-  was seen?
+- `### Speech / Transcript Verification` — everything else, including `R-ACT-001`: does
+  what was said match what was seen?
 
 `render_markdown` splits when `has_spec` is set or when both families have findings, and
 names an empty section explicitly ("No deviations from the spec.") rather than hiding it.

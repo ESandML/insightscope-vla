@@ -32,6 +32,24 @@ def test_does_not_pair_different_subjects_or_attributes() -> None:
     )
 
 
+def test_actions_only_pair_with_the_same_action() -> None:
+    claims = [claim("kettle", Attribute.ACTION_COMPLETED, True, action="fill")]
+    same = observation("kettle", Attribute.ACTION_COMPLETED, True, action="fill")
+    other = observation("kettle", Attribute.ACTION_COMPLETED, True, action="pour")
+
+    assert len(align_claims(claims=claims, observations=[same], window=WINDOW)) == 1
+    assert align_claims(claims=claims, observations=[other], window=WINDOW) == ()
+
+
+def test_action_claim_does_not_pair_with_a_state_observation() -> None:
+    rows = align_claims(
+        claims=[claim("kettle", Attribute.ACTION_COMPLETED, True, action="fill")],
+        observations=[observation("kettle", Attribute.PRESENCE, True)],
+        window=WINDOW,
+    )
+    assert rows == ()
+
+
 def test_window_boundary_is_inclusive() -> None:
     # claim ends at 11.0; observation starts at 14.0, a gap of exactly 3.0 s.
     rows = align_claims(
