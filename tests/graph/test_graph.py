@@ -25,7 +25,7 @@ GOLDEN = Path(__file__).parent.parent / "fixtures" / "reports" / "audit_report.m
 UTTERANCE_TEXT = "I closed the laptop"
 
 
-def evidence(tmp_path: Path) -> EvidenceManifest:
+def evidence(tmp_path: Path, text: str = UTTERANCE_TEXT) -> EvidenceManifest:
     frame = tmp_path / "kf_0001.jpg"
     assert cv2.imwrite(str(frame), np.zeros((120, 160, 3), dtype=np.uint8))
     span = TimeSpan(t_start_s=10.0, t_end_s=11.0)
@@ -44,7 +44,7 @@ def evidence(tmp_path: Path) -> EvidenceManifest:
                 height=120,
             ),
         ),
-        utterances=(Utterance(utterance_id="u_0001", text=UTTERANCE_TEXT, span=span),),
+        utterances=(Utterance(utterance_id="u_0001", text=text, span=span),),
         transcript_mode="json",
     )
 
@@ -313,9 +313,9 @@ async def test_spec_fills_targets_for_a_silent_clip(tmp_path: Path) -> None:
     )
 
     targets = vision.requests[0].targets
-    assert ("kettle", Attribute.PRESENCE) in targets
-    assert ("mug", Attribute.PRESENCE) in targets
-    assert ("fill_kettle", Attribute.STEP_COMPLETED) in targets
+    assert ("kettle", Attribute.PRESENCE, None) in targets
+    assert ("mug", Attribute.PRESENCE, None) in targets
+    assert ("fill_kettle", Attribute.STEP_COMPLETED, None) in targets
 
 
 async def test_silent_clip_can_violate_step_order_visually(tmp_path: Path) -> None:
@@ -365,3 +365,76 @@ async def test_silent_clip_can_violate_step_order_visually(tmp_path: Path) -> No
     assert findings[0].discrepancy.span_seen.t_start_s == 1.0
     assert findings[0].discrepancy.kind == "sequence_violation"
     assert final["report"].status == "complete"
+
+
+ACTION_TEXT = "I stirred the coffee"
+
+
+def action_text_client() -> FakeTextClient:
+    return FakeTextClient(
+        claims={
+            ACTION_TEXT: [
+                ClaimItem(
+                    subject="coffee",
+                    attribute=Attribute.ACTION_COMPLETED,
+                    action="stir",
+                    value=True,
+                    quote=ACTION_TEXT,
+                )
+            ]
+        }
+    )
+
+
+def action_vision_client() -> FakeVisionClient:
+    return FakeVisionClient(
+        analyses={
+            "kf_0001": KeyframeAnalysis(
+                keyframe_id="kf_0001",
+                verified=[
+                    VerifiedClaim(
+                        subject="coffee",
+                        attribute=Attribute.ACTION_COMPLETED,
+                        action="stir",
+                        value=False,
+                        confidence=0.9,
+                    )
+                ],
+            )
+        }
+    )
+
+
+async def test_spoken_action_is_verified_without_a_spec(tmp_path: Path) -> None:
+    vision = action_vision_client()
+    final = await run(
+        tmp_path,
+        text=action_text_client(),
+        vision=vision,
+        ev=evidence(tmp_path, text=ACTION_TEXT),
+    )
+
+    rules = [finding.discrepancy.rule_id for finding in final["report"].findings]
+    assert rules == ["R-ACT-001"]
+    assert ("coffee", Attribute.ACTION_COMPLETED, "stir") in vision.requests[0].targets
+
+
+async def test_spoken_action_is_verified_in_a_hybrid_run(tmp_path: Path) -> None:
+    spec = ChecklistSpec(
+        name="make_coffee",
+        expected_objects=["kettle"],
+        steps=[StepSpec(step_id="fill_kettle"), StepSpec(step_id="pour_water")],
+    )
+    final = await run(
+        tmp_path,
+        text=action_text_client(),
+        vision=action_vision_client(),
+        run_config=config(tmp_path, checklist=spec),
+        ev=evidence(tmp_path, text=ACTION_TEXT),
+    )
+
+    rules = {finding.discrepancy.rule_id for finding in final["report"].findings}
+    assert "R-ACT-001" in rules
+    assert "R-STEP-003" in rules
+    assert "### Process / Spec Compliance" in final["report"].markdown
+    assert "### Speech / Transcript Verification" in final["report"].markdown

@@ -40,6 +40,11 @@ Verification*; open-ended runs keep one findings table.
 `--process` and `--spec` default to **silent**. Whisper runs only when speech is `listen`
 or `--audio`; transcript mode and the silent modes never decode audio.
 
+Spoken actions are verified without a spec: *"I stirred the coffee"* becomes an
+`action_completed` claim carrying the action `stir`, and `R-ACT-001` compares it with
+aligned frames for that exact action. Listen and Transcript modes therefore check actions
+the same way Spec mode checks steps.
+
 ## The neuro-symbolic split
 
 > Models produce **observations**. Only deterministic code produces **decisions**.
@@ -219,8 +224,10 @@ above it. Both are enforced by import contracts in CI.
 - **Understand arbitrary properties.** Subjects are open-ended: whatever the transcript
   mentions becomes a subject to verify, and an audit spec adds expected objects and
   ordered steps. Attributes are a *closed* vocabulary — `presence`,
-  `open_closed_state`, `location`, `count`, `step_completed`. A claim about anything
-  outside that list is not extracted rather than guessed at.
+  `open_closed_state`, `location`, `count`, `action_completed`, `step_completed`. Actions
+  that leave no static state ("stir", "wipe_counter") are checked through
+  `action_completed` plus an explicit action name. A claim about anything outside that
+  list is not extracted rather than guessed at.
 - **Prove absence.** If no keyframe covers a moment, the finding says "insufficient
   evidence", never "you didn't do it".
 - **Run model-backed audits without a local server.** `--client fake` and `--replay`

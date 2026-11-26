@@ -34,6 +34,7 @@ def assertion(
     subject: str,
     attribute: Attribute,
     value: AttributeValue,
+    action: str | None = None,
     start: float = 10.0,
     duration: float = 1.0,
     modality: str = "acoustic",
@@ -42,10 +43,13 @@ def assertion(
 ) -> Assertion:
     span = make_span(start, duration)
     return Assertion(
-        assertion_id=make_assertion_id(modality, subject, attribute, value, span),  # type: ignore[arg-type]
+        assertion_id=make_assertion_id(  # type: ignore[arg-type]
+            modality, subject, attribute, value, span, action
+        ),
         modality=modality,  # type: ignore[arg-type]
         subject_id=subject,
         attribute=attribute,
+        action=action,
         value=value,
         span=span,
         evidence_refs=evidence,
@@ -59,6 +63,7 @@ def claim(
     attribute: Attribute,
     value: AttributeValue,
     *,
+    action: str | None = None,
     start: float = 10.0,
     duration: float = 1.0,
 ) -> Assertion:
@@ -66,6 +71,7 @@ def claim(
         subject=subject,
         attribute=attribute,
         value=value,
+        action=action,
         start=start,
         duration=duration,
         modality="acoustic",
@@ -77,6 +83,7 @@ def observation(
     attribute: Attribute,
     value: AttributeValue,
     *,
+    action: str | None = None,
     start: float = 10.0,
     duration: float = 1.0,
     confidence: float = 0.9,
@@ -86,6 +93,7 @@ def observation(
         subject=subject,
         attribute=attribute,
         value=value,
+        action=action,
         start=start,
         duration=duration,
         modality="vision",

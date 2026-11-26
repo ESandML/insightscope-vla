@@ -89,11 +89,12 @@ def make_extract_claims(client: TextClient) -> Node:
                 claims.append(
                     Assertion(
                         assertion_id=make_assertion_id(
-                            "acoustic", subject, item.attribute, item.value, span
+                            "acoustic", subject, item.attribute, item.value, span, item.action
                         ),
                         modality="acoustic",
                         subject_id=subject,
                         attribute=item.attribute,
+                        action=item.action,
                         value=item.value,
                         span=span,
                         evidence_refs=(utterance.utterance_id,),
@@ -132,8 +133,8 @@ def make_extract_observations(client: VisionClient) -> Node:
         cycle = cycle_of(state)
 
         claims = state.get("claims") or []
-        target_set = {
-            (claim.subject_id, claim.attribute)
+        target_set: set[tuple[str, Attribute, str | None]] = {
+            (claim.subject_id, claim.attribute, claim.action)
             for claim in claims
             if claim.subject_id != UNSPECIFIED_TARGET
         }
@@ -143,12 +144,14 @@ def make_extract_observations(client: VisionClient) -> Node:
         checklist = config.checklist
         if checklist is not None:
             for name in checklist.expected_objects:
-                target_set.add((aliases.resolve(name), Attribute.PRESENCE))
+                target_set.add((aliases.resolve(name), Attribute.PRESENCE, None))
             for step in checklist.steps:
-                target_set.add((step.step_id, Attribute.STEP_COMPLETED))
+                target_set.add((step.step_id, Attribute.STEP_COMPLETED, None))
 
-        targets = tuple(sorted(target_set, key=lambda pair: (pair[0], pair[1].value)))
-        requested = sorted({subject for subject, _ in targets})
+        targets = tuple(
+            sorted(target_set, key=lambda item: (item[0], item[1].value, item[2] or ""))
+        )
+        requested = sorted({subject for subject, _attribute, _action in targets})
 
         semaphore = asyncio.Semaphore(config.max_concurrency)
 
@@ -187,11 +190,17 @@ def make_extract_observations(client: VisionClient) -> Node:
                 observations.append(
                     Assertion(
                         assertion_id=make_assertion_id(
-                            "vision", subject, verified.attribute, verified.value, keyframe.span
+                            "vision",
+                            subject,
+                            verified.attribute,
+                            verified.value,
+                            keyframe.span,
+                            verified.action,
                         ),
                         modality="vision",
                         subject_id=subject,
                         attribute=verified.attribute,
+                        action=verified.action,
                         value=verified.value,
                         span=keyframe.span,
                         evidence_refs=(keyframe.keyframe_id,),

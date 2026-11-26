@@ -35,7 +35,7 @@ class ClaimsRequest:
 @dataclass(frozen=True, slots=True)
 class VisionRequest:
     keyframe: KeyframeRef
-    targets: tuple[tuple[str, Attribute], ...] = field(default_factory=tuple)
+    targets: tuple[tuple[str, Attribute, str | None], ...] = field(default_factory=tuple)
     previous_issues: tuple[Issue, ...] = field(default_factory=tuple)
 
 

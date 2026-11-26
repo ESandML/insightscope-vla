@@ -30,11 +30,13 @@ def align_claims(
     observation about the mug.
     """
     before_s, after_s = window
-    index: dict[tuple[str, Attribute], list[Assertion]] = defaultdict(list)
+    index: dict[tuple[str, Attribute, str], list[Assertion]] = defaultdict(list)
     for observation in observations:
         if observation.subject_id == UNSPECIFIED_TARGET:
             continue
-        index[(observation.subject_id, observation.attribute)].append(observation)
+        index[(observation.subject_id, observation.attribute, observation.action or "")].append(
+            observation
+        )
 
     rows: list[Alignment] = []
     for claim in claims:
@@ -42,7 +44,9 @@ def align_claims(
             continue
         candidates = [
             observation
-            for observation in index.get((claim.subject_id, claim.attribute), ())
+            for observation in index.get(
+                (claim.subject_id, claim.attribute, claim.action or ""), ()
+            )
             if _within_window(claim.span, observation.span, before_s=before_s, after_s=after_s)
         ]
         if not candidates:

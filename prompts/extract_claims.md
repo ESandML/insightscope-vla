@@ -15,13 +15,22 @@ Rules:
    - `presence`: true or false
    - `open_closed_state`: one of open, closed, ajar
    - `count`: a whole number
-   - `location`: a short place phrase ("on the tray", "left of the laptop")
+   - `location`: a short place phrase ("on the tray", "left of the coffee machine")
+   - `action_completed`: true if the action happened, false if the speaker says it did
+     not happen ("I didn't stir it")
    - `step_completed`: true (only emit when the utterance says the step is done)
-4. `quote` must be an exact substring of the utterance. Copy the words; never paraphrase.
+4. Use `action_completed` for physical actions that leave no static state to inspect:
+   "I stirred the coffee", "I wiped the counter", "I unplugged the kettle".
+   - Set `action` to the normalised verb phrase, lowercase with underscores:
+     "stir", "wipe_counter", "unplug".
+   - `subject` is the object acted on ("coffee", "counter", "kettle"), not the person.
+   - Do not also emit `presence`/`location` claims for the same action; the action is
+     the claim.
+5. `quote` must be an exact substring of the utterance. Copy the words; never paraphrase.
    If you cannot quote it, do not claim it.
-5. Do not extract opinions, intentions, questions, or plans. "I will close the laptop"
+6. Do not extract opinions, intentions, questions, or plans. "I will close the lid"
    is not a claim that it is closed.
-6. An empty list is a correct answer for an utterance with no checkable claims.
+7. An empty list is a correct answer for an utterance with no checkable claims.
 
 Utterance ({{start}}s to {{end}}s):
 

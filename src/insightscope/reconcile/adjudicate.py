@@ -57,6 +57,7 @@ def _dedupe_key(discrepancy: Discrepancy) -> tuple[object, ...]:
         discrepancy.rule_id,
         discrepancy.subject_id,
         discrepancy.attribute,
+        discrepancy.action,
         _span_key(discrepancy.span_said),
         _span_key(discrepancy.span_seen),
     )

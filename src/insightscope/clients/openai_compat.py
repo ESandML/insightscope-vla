@@ -210,10 +210,18 @@ def encode_image(path: Path) -> str:
     return f"data:{mime};base64,{payload}"
 
 
-def _format_targets(targets: tuple[tuple[str, Attribute], ...]) -> str:
+def _format_targets(targets: tuple[tuple[str, Attribute, str | None], ...]) -> str:
     if not targets:
         return "(none listed: report only obvious changes)"
-    return "\n".join(f"- {subject} / {attribute.value}" for subject, attribute in targets)
+    lines = []
+    for subject, attribute, action in targets:
+        if attribute is Attribute.ACTION_COMPLETED and action:
+            lines.append(
+                f"- {subject} / action_completed / {action} (was the action {action!r} completed?)"
+            )
+        else:
+            lines.append(f"- {subject} / {attribute.value}")
+    return "\n".join(lines)
 
 
 def _format_findings(findings: tuple[Finding, ...]) -> str:
@@ -222,6 +230,9 @@ def _format_findings(findings: tuple[Finding, ...]) -> str:
     lines = []
     for finding in findings:
         discrepancy = finding.discrepancy
+        subject = discrepancy.subject_id
+        if discrepancy.action:
+            subject = f"{subject} ({discrepancy.action})"
         said = (
             f"{discrepancy.said_value} @ {discrepancy.span_said.t_start_s:.1f}s"
             if discrepancy.span_said
@@ -234,7 +245,7 @@ def _format_findings(findings: tuple[Finding, ...]) -> str:
         )
         lines.append(
             f"- {finding.finding_id} | {discrepancy.severity} | {discrepancy.rule_id} | "
-            f"{discrepancy.subject_id} | said {said} | seen {seen} | {finding.status}"
+            f"{subject} | said {said} | seen {seen} | {finding.status}"
         )
     return "\n".join(lines)
 

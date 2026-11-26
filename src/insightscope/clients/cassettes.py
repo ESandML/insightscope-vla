@@ -61,7 +61,9 @@ def payload_for(method: str, request: object) -> dict[str, Any]:
     if method == "analyse" and isinstance(request, VisionRequest):
         return {
             "keyframe": request.keyframe.sha256,
-            "targets": [[subject, attribute.value] for subject, attribute in request.targets],
+            "targets": [
+                [subject, attribute.value, action] for subject, attribute, action in request.targets
+            ],
             "issues": [issue.model_dump(mode="json") for issue in request.previous_issues],
         }
     if method == "synthesize" and isinstance(request, SynthesisRequest):

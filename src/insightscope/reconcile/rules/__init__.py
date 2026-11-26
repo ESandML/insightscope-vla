@@ -12,7 +12,14 @@ from dataclasses import dataclass
 
 from insightscope.domain.models import Discrepancy
 from insightscope.reconcile.context import RuleContext
-from insightscope.reconcile.rules import coverage, object_state, omissions, references, steps
+from insightscope.reconcile.rules import (
+    actions,
+    coverage,
+    object_state,
+    omissions,
+    references,
+    steps,
+)
 
 RuleFn = Callable[[RuleContext], list[Discrepancy]]
 
@@ -29,12 +36,14 @@ ALL_RULES: tuple[Rule, ...] = (
     # Coverage first: these explain why other rules stayed silent.
     Rule("R-COVER-001", coverage.coverage_gap),
     Rule("R-COVER-002", coverage.not_reported),
-    # Object state, open-ended mode.
+    # Open-ended object state.
     Rule("R-PRES-001", object_state.said_present_seen_absent),
     Rule("R-PRES-002", object_state.said_absent_seen_present),
     Rule("R-STATE-001", object_state.open_closed_mismatch),
     Rule("R-COUNT-001", object_state.count_mismatch),
     Rule("R-LOC-001", object_state.location_mismatch),
+    # Open-ended spoken actions.
+    Rule("R-ACT-001", actions.action_mismatch),
     # Checklist only.
     Rule("R-STEP-001", steps.step_unsupported, needs_checklist=True),
     Rule("R-STEP-002", steps.step_order, needs_checklist=True),

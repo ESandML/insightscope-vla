@@ -62,7 +62,12 @@ def resolve_claims(
                 update={
                     "subject_id": subject,
                     "assertion_id": make_assertion_id(
-                        claim.modality, subject, claim.attribute, claim.value, claim.span
+                        claim.modality,
+                        subject,
+                        claim.attribute,
+                        claim.value,
+                        claim.span,
+                        claim.action,
                     ),
                 }
             )

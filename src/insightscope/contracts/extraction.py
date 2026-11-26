@@ -12,9 +12,9 @@ Two shapes matter:
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
-from insightscope.domain.ontology import Attribute, AttributeValue, coerce_value
+from insightscope.domain.ontology import Attribute, AttributeValue, coerce_value, normalize_action
 
 Visibility = ("clear", "partial", "occluded")
 
@@ -26,12 +26,25 @@ class ClaimItem(BaseModel):
 
     subject: str = Field(min_length=1)
     attribute: Attribute
+    action: str | None = None
     value: AttributeValue
     quote: str = Field(min_length=1)
     t_hint_s: float | None = Field(default=None, ge=0.0)
 
+    @field_validator("action")
+    @classmethod
+    def _canonical_action(cls, value: str | None, info: ValidationInfo) -> str | None:
+        if value is None:
+            return None
+        attribute = info.data.get("attribute")
+        if not isinstance(attribute, Attribute) or attribute is not Attribute.ACTION_COMPLETED:
+            raise ValueError("action is only valid for action_completed")
+        return normalize_action(value)
+
     @model_validator(mode="after")
     def _canonical(self) -> ClaimItem:
+        if self.attribute is Attribute.ACTION_COMPLETED and not self.action:
+            raise ValueError("action is required when attribute is action_completed")
         object.__setattr__(self, "value", coerce_value(self.attribute, self.value))
         if not self.quote.strip():
             raise ValueError("quote must contain text")
@@ -51,12 +64,25 @@ class VerifiedClaim(BaseModel):
 
     subject: str = Field(min_length=1)
     attribute: Attribute
+    action: str | None = None
     value: AttributeValue
     visibility: str = Field(default="clear")
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
 
+    @field_validator("action")
+    @classmethod
+    def _canonical_action(cls, value: str | None, info: ValidationInfo) -> str | None:
+        if value is None:
+            return None
+        attribute = info.data.get("attribute")
+        if not isinstance(attribute, Attribute) or attribute is not Attribute.ACTION_COMPLETED:
+            raise ValueError("action is only valid for action_completed")
+        return normalize_action(value)
+
     @model_validator(mode="after")
     def _canonical(self) -> VerifiedClaim:
+        if self.attribute is Attribute.ACTION_COMPLETED and not self.action:
+            raise ValueError("action is required when attribute is action_completed")
         object.__setattr__(self, "value", coerce_value(self.attribute, self.value))
         if self.visibility not in Visibility:
             raise ValueError(f"visibility must be one of {Visibility}, got {self.visibility!r}")
