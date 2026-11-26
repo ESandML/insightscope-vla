@@ -115,7 +115,7 @@ def config_from_yaml(path: str | Path) -> RunConfig:
     """Load a run config from YAML, resolving a ``checklist:`` path relative to it.
 
     Kept deliberately small: the YAML mirrors :class:`RunConfig`, plus an optional
-    ``checklist: ./desk.yaml`` line so a run is reproducible from one file.
+    ``checklist: ./coffee.yaml`` line so a run is reproducible from one file.
     """
     import yaml
 

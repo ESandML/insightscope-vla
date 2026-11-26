@@ -9,8 +9,10 @@ from tests.support import write_test_video
 
 from insightscope.actions.db import history
 from insightscope.cli import main
+from insightscope.domain.models import TimeSpan, Utterance
+from insightscope.telemetry.transcript_source import TranscriptBundle
 
-CHECKLIST = Path(__file__).parent.parent / "fixtures" / "checklists" / "desk.yaml"
+CHECKLIST = Path(__file__).parent.parent / "fixtures" / "checklists" / "make_coffee.yaml"
 
 
 def transcript_json(path: Path, text: str = "I closed the laptop") -> Path:
@@ -128,7 +130,7 @@ def test_txt_transcript_is_reported_as_degraded(tmp_path: Path) -> None:
     assert "Evidence notes" in report
 
 
-def test_checklist_enables_step_rules(tmp_path: Path, capsys: object) -> None:
+def test_spec_mode_enables_step_rules(tmp_path: Path, capsys: object) -> None:
     clip = write_test_video(tmp_path / "clip.avi")
     transcript = transcript_json(tmp_path / "t.json")
     artifacts = tmp_path / "artifacts"
@@ -150,7 +152,7 @@ def test_checklist_enables_step_rules(tmp_path: Path, capsys: object) -> None:
 
     captured = capsys.readouterr()  # type: ignore[attr-defined]
     assert code == 0
-    assert "checklist: pack_the_desk" in captured.out
+    assert "spec make_coffee" in captured.out
 
     report = next(artifacts.glob("*/report.md")).read_text(encoding="utf-8")
     assert "R-STEP-003" in report
@@ -175,14 +177,14 @@ def test_unsupported_transcript_returns_two(tmp_path: Path, capsys: object) -> N
     assert "unsupported format" in captured.err
 
 
-def test_checklist_new_writes_reviewable_yaml(tmp_path: Path, capsys: object) -> None:
-    output = tmp_path / "desk.yaml"
+def test_spec_new_writes_reviewable_yaml(tmp_path: Path, capsys: object) -> None:
+    output = tmp_path / "coffee.yaml"
 
     code = main(
         [
-            "checklist",
+            "spec",
             "new",
-            "close the laptop and put the mug on the tray",
+            "fill the kettle and pour water into the mug",
             "-o",
             str(output),
             "--client",
@@ -195,9 +197,28 @@ def test_checklist_new_writes_reviewable_yaml(tmp_path: Path, capsys: object) ->
     assert output.exists()
 
     text = output.read_text(encoding="utf-8")
-    assert "generated_checklist" in text
-    assert "close_laptop" in text
+    assert "make_coffee" in text
+    assert "fill_kettle" in text
     assert "review and edit" in captured.out
+
+
+def test_checklist_new_remains_an_alias(tmp_path: Path) -> None:
+    output = tmp_path / "coffee.yaml"
+
+    code = main(
+        [
+            "checklist",
+            "new",
+            "fill the kettle",
+            "-o",
+            str(output),
+            "--client",
+            "fake",
+        ]
+    )
+
+    assert code == 0
+    assert output.exists()
 
 
 def test_audit_can_record_and_replay_a_cassette(tmp_path: Path, capsys: object) -> None:
@@ -245,3 +266,145 @@ def test_ollama_without_the_llm_extra_explains_how_to_fix(tmp_path: Path, capsys
     captured = capsys.readouterr()  # type: ignore[attr-defined]
     assert code == 2
     assert "llm extra" in captured.err
+
+
+def forbid_whisper(monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(*args: object, **kwargs: object) -> object:
+        raise AssertionError("whisper must not run in this input mode")
+
+    monkeypatch.setattr("insightscope.cli.transcribe", boom)
+
+
+def audit_args(tmp_path: Path, *extra: str) -> list[str]:
+    return [
+        "audit",
+        str(tmp_path / "clip.avi"),
+        "--artifacts-dir",
+        str(tmp_path / "artifacts"),
+        "--db",
+        str(tmp_path / "audits.db"),
+        *extra,
+    ]
+
+
+def test_transcript_mode_skips_whisper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: object
+) -> None:
+    write_test_video(tmp_path / "clip.avi")
+    forbid_whisper(monkeypatch)
+
+    code = main(audit_args(tmp_path, "--transcript", str(transcript_json(tmp_path / "t.json"))))
+
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert code == 0
+    assert "transcript (json" in captured.out
+
+
+def test_spec_mode_skips_whisper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: object
+) -> None:
+    write_test_video(tmp_path / "clip.avi")
+    forbid_whisper(monkeypatch)
+
+    code = main(audit_args(tmp_path, "--spec", str(CHECKLIST)))
+
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert code == 0
+    assert "spec make_coffee" in captured.out
+
+
+def test_process_mode_generates_a_spec_and_skips_whisper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: object
+) -> None:
+    write_test_video(tmp_path / "clip.avi")
+    forbid_whisper(monkeypatch)
+
+    code = main(audit_args(tmp_path, "--process", "fill the kettle, then pour water into the mug"))
+
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert code == 0
+    assert "process text" in captured.out
+
+    generated = list((tmp_path / "artifacts").glob("*/generated_spec.yaml"))
+    assert len(generated) == 1
+    assert "make_coffee" in generated[0].read_text(encoding="utf-8")
+
+
+def test_process_file_mode_is_accepted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    write_test_video(tmp_path / "clip.avi")
+    forbid_whisper(monkeypatch)
+    process = tmp_path / "process.txt"
+    process.write_text("fill the kettle, then pour water into the mug", encoding="utf-8")
+
+    code = main(audit_args(tmp_path, "--process-file", str(process)))
+
+    assert code == 0
+
+
+def test_listen_mode_transcribes_the_audio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: object
+) -> None:
+    write_test_video(tmp_path / "clip.avi")
+    calls: dict[str, object] = {}
+
+    def fake_transcribe(path: Path, *, model_size: str) -> TranscriptBundle:
+        calls["path"] = path
+        calls["model"] = model_size
+        return TranscriptBundle(
+            utterances=(
+                Utterance(
+                    utterance_id="u_0001",
+                    text="I filled the kettle",
+                    span=TimeSpan(t_start_s=0.0, t_end_s=1.0),
+                ),
+            ),
+            mode="asr",
+        )
+
+    monkeypatch.setattr("insightscope.cli.transcribe", fake_transcribe)
+
+    code = main(audit_args(tmp_path))
+
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert code == 0
+    assert calls["model"] == "small.en"
+    assert "listen (whisper small.en, 1 segments)" in captured.out
+
+    report = next((tmp_path / "artifacts").glob("*/report.md")).read_text(encoding="utf-8")
+    assert "asr transcript" in report
+
+
+def test_reference_sources_are_mutually_exclusive(tmp_path: Path) -> None:
+    write_test_video(tmp_path / "clip.avi")
+
+    with pytest.raises(SystemExit):
+        main(
+            audit_args(
+                tmp_path,
+                "--process",
+                "fill the kettle",
+                "--spec",
+                str(CHECKLIST),
+            )
+        )
+
+
+def test_transcript_can_accompany_a_spec(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: object
+) -> None:
+    write_test_video(tmp_path / "clip.avi")
+    forbid_whisper(monkeypatch)
+
+    code = main(
+        audit_args(
+            tmp_path,
+            "--transcript",
+            str(transcript_json(tmp_path / "t.json")),
+            "--spec",
+            str(CHECKLIST),
+        )
+    )
+
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert code == 0
+    assert "spec make_coffee" in captured.out

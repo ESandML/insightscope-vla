@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from itertools import pairwise
 
-from insightscope.domain.models import Discrepancy
+from insightscope.domain.models import Assertion, Discrepancy
 from insightscope.domain.ontology import Attribute
 from insightscope.reconcile.context import RuleContext
 from insightscope.reconcile.rules._util import claim_discrepancy, subject_discrepancy
@@ -40,12 +40,18 @@ def step_unsupported(ctx: RuleContext) -> list[Discrepancy]:
 
 
 def step_order(ctx: RuleContext) -> list[Discrepancy]:
-    """R-STEP-002: steps claimed in an order the checklist does not allow."""
+    """R-STEP-002: steps happen out of the order the spec allows.
+
+    Spoken claims take precedence when present. With no speech — a silent Process or
+    Spec run — the order of ``step_completed=True`` observations decides, using the
+    first keyframe that shows each step.
+    """
     checklist = ctx.config.checklist
     if checklist is None or len(checklist.steps) < 2:
         return []
 
     order = {step_id: index for index, step_id in enumerate(checklist.step_ids())}
+
     claimed = [
         claim
         for claim in ctx.claims
@@ -53,26 +59,58 @@ def step_order(ctx: RuleContext) -> list[Discrepancy]:
         and claim.value is True
         and claim.subject_id in order
     ]
-    claimed.sort(key=lambda claim: (claim.span.t_start_s, claim.subject_id))
-
-    found: list[Discrepancy] = []
-    for earlier, later in pairwise(claimed):
-        if order[earlier.subject_id] <= order[later.subject_id]:
-            continue
-        found.append(
+    if claimed:
+        claimed.sort(key=lambda claim: (claim.span.t_start_s, claim.subject_id))
+        return [
             claim_discrepancy(
                 "R-STEP-002",
                 "sequence_violation",
                 "major",
-                later,
+                earlier,
                 det_confidence=0.85,
                 note=(
-                    f"{later.subject_id} was said before {earlier.subject_id}, "
-                    f"but comes later in the checklist"
+                    f"{earlier.subject_id} was said before {later.subject_id}, "
+                    "but comes later in the spec"
                 ),
             )
+            for earlier, later in pairwise(claimed)
+            if order[earlier.subject_id] > order[later.subject_id]
+        ]
+
+    first_seen: dict[str, Assertion] = {}
+    for observation in ctx.observations:
+        if (
+            observation.attribute is not Attribute.STEP_COMPLETED
+            or observation.value is not True
+            or observation.subject_id not in order
+        ):
+            continue
+        current = first_seen.get(observation.subject_id)
+        if current is None or observation.span.t_start_s < current.span.t_start_s:
+            first_seen[observation.subject_id] = observation
+
+    visual = sorted(
+        first_seen.values(),
+        key=lambda item: (item.span.t_start_s, item.subject_id),
+    )
+    return [
+        subject_discrepancy(
+            "R-STEP-002",
+            "sequence_violation",
+            "major",
+            earlier.subject_id,
+            attribute=Attribute.STEP_COMPLETED,
+            span_seen=earlier.span,
+            evidence_refs=earlier.evidence_refs,
+            det_confidence=0.75,
+            note=(
+                f"{earlier.subject_id} appears before {later.subject_id} in the video, "
+                "but comes later in the spec"
+            ),
         )
-    return found
+        for earlier, later in pairwise(visual)
+        if order[earlier.subject_id] > order[later.subject_id]
+    ]
 
 
 def step_missing(ctx: RuleContext) -> list[Discrepancy]:

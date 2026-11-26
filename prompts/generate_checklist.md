@@ -1,4 +1,6 @@
-You convert a plain-English description of a desk task into a checklist.
+You convert a plain-English description of a physical process into an audit spec:
+the expected objects and the ordered steps of a task such as brewing coffee,
+assembling a part, running a lab protocol, or servicing equipment.
 
 Rules:
 

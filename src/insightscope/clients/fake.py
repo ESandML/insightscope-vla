@@ -29,10 +29,13 @@ from insightscope.domain.checklist import ChecklistSpec, StepSpec
 DraftFactory = Callable[[SynthesisRequest], ReportDraft]
 
 DEFAULT_CHECKLIST = ChecklistSpec(
-    name="generated_checklist",
-    description="A desk task.",
-    expected_objects=["laptop"],
-    steps=[StepSpec(step_id="close_laptop", description="Close the laptop lid")],
+    name="make_coffee",
+    description="Brew a coffee at the kitchen counter.",
+    expected_objects=["kettle", "mug"],
+    steps=[
+        StepSpec(step_id="fill_kettle", description="Fill the kettle"),
+        StepSpec(step_id="pour_water", description="Pour water into the mug"),
+    ],
 )
 
 
@@ -118,12 +121,14 @@ class FakeVisionClient:
         self._analyses = dict(analyses or {})
         self._fail = dict(fail or {})
         self.calls: list[str] = []
+        self.requests: list[VisionRequest] = []
 
     def prompt_version(self, name: str) -> str:
         return f"fake-{name}"
 
     async def analyse(self, request: VisionRequest) -> KeyframeAnalysis:
         self.calls.append(request.keyframe.keyframe_id)
+        self.requests.append(request)
         remaining = self._fail.get("analyse", 0)
         if remaining > 0:
             self._fail["analyse"] = remaining - 1

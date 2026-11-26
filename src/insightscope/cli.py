@@ -1,17 +1,23 @@
 """Command line entry point.
 
-``insightscope keyframes CLIP``
-    Run telemetry only and print what was selected, with the reason for each frame.
+Input routing for ``audit``:
 
-``insightscope audit CLIP``
-    Run the whole graph. ``--client fake`` uses scripted responses (offline);
-    ``--client ollama`` calls a local model server.
+* **Speech source** — ``--transcript`` uses a file; otherwise, when there is no spec
+  reference, the clip's audio is transcribed with faster-whisper.
+* **Reference source** — ``--spec`` loads a YAML audit spec; ``--process`` or
+  ``--process-file`` turns a plain-English description into one (saved for review).
+  These are mutually exclusive with each other, and both skip Whisper. A transcript
+  may accompany a spec: its claims are added to the spec's expectations.
 
-``insightscope checklist new "..." -o desk.yaml``
-    Ask a model to draft a checklist, write it to YAML, and stop. You inspect and edit
-    it before using it — the model proposes, you approve, code executes.
+Resulting modes:
 
-Exit codes: 0 success, 1 the run escalated, 2 bad input or missing dependency.
+1. **Listen** (default): Whisper → open-ended claims.
+2. **Transcript** (``--transcript``): file claims, no audio decoding.
+3. **Process text** (``--process`` / ``--process-file``): generated spec, no Whisper.
+4. **Spec** (``--spec``, alias ``--checklist``): YAML spec, no Whisper.
+
+``insightscope spec new "..." -o task.yaml`` drafts an audit spec: the model proposes,
+you inspect and edit, then pass it back with ``--spec``.
 """
 
 from __future__ import annotations
@@ -23,14 +29,19 @@ import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from insightscope import __version__
 from insightscope.clients.base import ClientError
-from insightscope.clients.cassettes import Cassette, CassettePlayer, CassetteRecorder
+from insightscope.clients.cassettes import Cassette, CassetteMiss, CassettePlayer, CassetteRecorder
 from insightscope.clients.fake import FakeTextClient, FakeVisionClient
 from insightscope.config import KeyframeConfig, ModelChoice, RunConfig, Settings
-from insightscope.domain.checklist import ChecklistError, dump_checklist, load_checklist
+from insightscope.domain.checklist import (
+    ChecklistError,
+    ChecklistSpec,
+    dump_checklist,
+    load_checklist,
+)
 from insightscope.domain.models import EvidenceManifest
 from insightscope.graph.build import build_graph
 from insightscope.telemetry.keyframes import TelemetryError, select_keyframes, video_duration
@@ -45,6 +56,8 @@ from insightscope.telemetry.whisper import (
     transcribe,
 )
 
+InputMode = Literal["listen", "transcript", "process", "spec"]
+
 
 class CliError(RuntimeError):
     """An input or environment problem the user can fix."""
@@ -56,8 +69,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "keyframes":
             return _keyframes_command(args)
-        if args.command == "checklist":
-            return _checklist_new_command(args)
+        if args.command in ("spec", "checklist"):
+            return _spec_new_command(args)
         return _audit_command(args)
     except (
         TelemetryError,
@@ -69,6 +82,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    except CassetteMiss as exc:
+        print(f"error: cassette miss: {exc}", file=sys.stderr)
+        return 1
     except ClientError as exc:
         print(f"error: model call failed: {exc}", file=sys.stderr)
         return 1
@@ -77,7 +93,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="insightscope",
-        description="Audit what a camera saw against what someone said.",
+        description="Audit what a camera saw against what someone said or planned.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -90,8 +106,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     audit = sub.add_parser("audit", help="run the audit graph over a clip")
     audit.add_argument("clip", type=Path, help="video file")
-    audit.add_argument("--transcript", type=Path, help=".json or .txt transcript")
-    audit.add_argument("--checklist", type=Path, help="optional YAML checklist")
     audit.add_argument("--artifacts-dir", type=Path, default=Path("artifacts"))
     audit.add_argument("--db", type=Path, default=Path("audits.db"))
     audit.add_argument(
@@ -102,15 +116,48 @@ def build_parser() -> argparse.ArgumentParser:
     audit.add_argument(
         "--whisper-model",
         default="small.en",
-        help="speech-to-text model when --transcript is omitted and --client ollama",
+        help="speech-to-text model for listen mode",
     )
+    audit.add_argument(
+        "--transcript",
+        type=Path,
+        help=".json or .txt transcript; skips speech-to-text and may accompany a spec",
+    )
+
+    # One reference source, or none. Transcript is orthogonal: it changes where the
+    # claims come from, not what the spec expects.
+    source = audit.add_mutually_exclusive_group()
+    source.add_argument(
+        "--process",
+        metavar="TEXT",
+        help="plain-English process description; generated spec is saved for review",
+    )
+    source.add_argument(
+        "--process-file",
+        type=Path,
+        metavar="FILE",
+        help="file containing a plain-English process description",
+    )
+    source.add_argument(
+        "--spec",
+        "--checklist",
+        dest="spec",
+        type=Path,
+        metavar="FILE",
+        help="YAML audit spec (--checklist is an alias)",
+    )
+
     _add_client_arguments(audit)
     _add_tuning_arguments(audit)
 
-    checklist = sub.add_parser("checklist", help="draft checklists for review")
-    checklist_sub = checklist.add_subparsers(dest="checklist_command", required=True)
-    new = checklist_sub.add_parser("new", help="draft a checklist from a description")
-    new.add_argument("description", help="plain-English task description")
+    spec = sub.add_parser(
+        "spec",
+        aliases=["checklist"],
+        help="draft audit specs for review (checklist is an alias)",
+    )
+    spec_sub = spec.add_subparsers(dest="spec_command", required=True)
+    new = spec_sub.add_parser("new", help="draft an audit spec from a process description")
+    new.add_argument("description", help="plain-English process description")
     new.add_argument("-o", "--output", type=Path, required=True, help="YAML file to write")
     _add_client_arguments(new)
 
@@ -151,7 +198,11 @@ def _add_tuning_arguments(parser: argparse.ArgumentParser) -> None:
 def _keyframes_command(args: argparse.Namespace) -> int:
     clip: Path = args.clip
     duration = video_duration(clip)
-    bundle = _transcript(args.transcript, duration)
+    bundle = (
+        load_transcript(args.transcript, duration_s=duration)
+        if args.transcript
+        else TranscriptBundle(utterances=(), mode="none")
+    )
 
     refs = select_keyframes(
         video_path=clip,
@@ -174,19 +225,25 @@ def _audit_command(args: argparse.Namespace) -> int:
     clip: Path = args.clip
     duration = video_duration(clip)
 
-    text_client, vision_client, _generator = _clients(args)
-    bundle = _transcript_for_audit(args, clip, duration)
+    text_client, vision_client, generator = _clients(args)
+    mode = _input_mode(args)
+    spec, generated = _resolve_spec(args, generator)
+    bundle = _transcript_for_audit(args, clip, duration, mode)
 
     config = RunConfig(
         keyframes=_keyframe_config(args),
-        checklist=load_checklist(args.checklist) if args.checklist else None,
+        checklist=spec,
         flag_omissions=bool(args.flag_omissions),
         artifacts_dir=args.artifacts_dir,
         db_path=args.db,
         models=_model_choice(args),
     )
-    run_id = _run_id(clip, config)
+    run_id = _run_id(clip, config, mode=mode, bundle=bundle)
     run_dir = config.artifacts_dir / run_id
+
+    generated_path: Path | None = None
+    if generated and spec is not None:
+        generated_path = dump_checklist(spec, run_dir / "generated_spec.yaml")
 
     keyframes = select_keyframes(
         video_path=clip,
@@ -207,8 +264,7 @@ def _audit_command(args: argparse.Namespace) -> int:
     final = asyncio.run(graph.ainvoke({"run_id": run_id, "config": config, "evidence": evidence}))
 
     if args.record is not None and isinstance(text_client, CassetteRecorder):
-        saved = text_client.cassette.save()
-        print(f"cassette:  {saved}")
+        print(f"cassette:  {text_client.cassette.save()}")
 
     report = final.get("report")
     if report is None:
@@ -220,19 +276,18 @@ def _audit_command(args: argparse.Namespace) -> int:
     report_path.write_text(report.markdown, encoding="utf-8")
 
     print(f"run:       {run_id}")
+    print(f"input:     {_describe_mode(mode, args, bundle, spec, generated_path)}")
     print(f"status:    {report.status}")
     print(f"keyframes: {len(keyframes)}")
     print(f"claims:    {len(final.get('claims') or [])}")
     print(f"findings:  {len(report.findings)}")
     print(f"report:    {report_path}")
-    if config.checklist is not None:
-        print(f"checklist: {config.checklist.name}")
     print(f"clients:   {_describe_clients(args)}")
 
     return 0 if report.status in ("complete", "complete_with_caveats") else 1
 
 
-def _checklist_new_command(args: argparse.Namespace) -> int:
+def _spec_new_command(args: argparse.Namespace) -> int:
     _text, _vision, generator = _clients(args)
 
     spec = asyncio.run(generator.generate_checklist(args.description))
@@ -241,8 +296,66 @@ def _checklist_new_command(args: argparse.Namespace) -> int:
     print(f"wrote {path}")
     print(f"name: {spec.name} | objects: {len(spec.expected_objects)} | steps: {len(spec.steps)}")
     print("review and edit it, then run:")
-    print(f"  insightscope audit CLIP --checklist {path}")
+    print(f"  insightscope audit CLIP --spec {path}")
     return 0
+
+
+def _input_mode(args: argparse.Namespace) -> InputMode:
+    if args.process is not None or args.process_file is not None:
+        return "process"
+    if args.spec is not None:
+        return "spec"
+    if args.transcript is not None:
+        return "transcript"
+    return "listen"
+
+
+def _resolve_spec(args: argparse.Namespace, generator: Any) -> tuple[ChecklistSpec | None, bool]:
+    """Return (spec, was_generated). Generation is the only model call here."""
+    if args.spec is not None:
+        return load_checklist(args.spec), False
+
+    description: str | None = args.process
+    if description is None and args.process_file is not None:
+        path: Path = args.process_file
+        if not path.exists():
+            raise CliError(f"{path}: process file not found")
+        description = path.read_text(encoding="utf-8").strip()
+        if not description:
+            raise CliError(f"{path}: process file is empty")
+
+    if description is None:
+        return None, False
+
+    return asyncio.run(generator.generate_checklist(description)), True
+
+
+def _transcript_for_audit(
+    args: argparse.Namespace, clip: Path, duration: float, mode: InputMode
+) -> TranscriptBundle:
+    if args.transcript is not None:
+        return load_transcript(args.transcript, duration_s=duration)
+    if mode in ("process", "spec"):
+        return TranscriptBundle(utterances=(), mode="none")
+    return transcribe(clip, model_size=args.whisper_model)
+
+
+def _describe_mode(
+    mode: InputMode,
+    args: argparse.Namespace,
+    bundle: TranscriptBundle,
+    spec: ChecklistSpec | None,
+    generated_path: Path | None,
+) -> str:
+    if mode == "listen":
+        return f"listen (whisper {args.whisper_model}, {len(bundle.utterances)} segments)"
+    if mode == "transcript":
+        return f"transcript ({bundle.mode}, {len(bundle.utterances)} segments)"
+    if mode == "process":
+        name = spec.name if spec is not None else "?"
+        return f"process text → spec {name} ({generated_path})"
+    name = spec.name if spec is not None else "?"
+    return f"spec {name} ({args.spec})"
 
 
 def _clients(args: argparse.Namespace) -> tuple[Any, Any, Any]:
@@ -290,24 +403,6 @@ def _clients(args: argparse.Namespace) -> tuple[Any, Any, Any]:
     )
 
 
-def _transcript_for_audit(
-    args: argparse.Namespace, clip: Path, duration: float
-) -> TranscriptBundle:
-    if args.transcript is not None:
-        return load_transcript(args.transcript, duration_s=duration)
-    if args.replay is not None:
-        raise CliError("--replay needs the transcript the cassette was recorded with")
-    if args.client == "fake":
-        return TranscriptBundle(utterances=(), mode="none")
-    return transcribe(clip, model_size=args.whisper_model)
-
-
-def _transcript(path: Path | None, duration_s: float) -> TranscriptBundle:
-    if path is None:
-        return TranscriptBundle(utterances=(), mode="none")
-    return load_transcript(path, duration_s=duration_s)
-
-
 def _keyframe_config(args: argparse.Namespace) -> KeyframeConfig:
     defaults = KeyframeConfig()
     return KeyframeConfig(
@@ -337,12 +432,15 @@ def _describe_clients(args: argparse.Namespace) -> str:
     return f"ollama at {target}"
 
 
-def _run_id(clip: Path, config: RunConfig) -> str:
-    """Stable for the same clip and settings, so reruns overwrite rather than pile up."""
-    return f"run-{_slug(clip.stem)}-{_file_digest(clip)[:8]}-{_config_fingerprint(config)}"
+def _run_id(clip: Path, config: RunConfig, *, mode: InputMode, bundle: TranscriptBundle) -> str:
+    """Stable per (clip, settings, input mode, transcript content)."""
+    return (
+        f"run-{_slug(clip.stem)}-{_file_digest(clip)[:8]}"
+        f"-{_config_fingerprint(config, mode=mode, bundle=bundle)}"
+    )
 
 
-def _config_fingerprint(config: RunConfig) -> str:
+def _config_fingerprint(config: RunConfig, *, mode: InputMode, bundle: TranscriptBundle) -> str:
     payload = {
         "checklist": config.checklist.name if config.checklist else None,
         "flag_omissions": config.flag_omissions,
@@ -350,6 +448,8 @@ def _config_fingerprint(config: RunConfig) -> str:
         "tolerance_s": config.alignment.tolerance_s,
         "text_model": config.models.text,
         "vision_model": config.models.vision,
+        "input_mode": mode,
+        "transcript": [utterance.utterance_id for utterance in bundle.utterances],
     }
     encoded = json.dumps(payload, sort_keys=True).encode()
     return hashlib.sha256(encoded).hexdigest()[:6]

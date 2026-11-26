@@ -132,16 +132,22 @@ def make_extract_observations(client: VisionClient) -> Node:
         cycle = cycle_of(state)
 
         claims = state.get("claims") or []
-        targets = tuple(
-            sorted(
-                {
-                    (claim.subject_id, claim.attribute)
-                    for claim in claims
-                    if claim.subject_id != UNSPECIFIED_TARGET
-                },
-                key=lambda pair: (pair[0], pair[1].value),
-            )
-        )
+        target_set = {
+            (claim.subject_id, claim.attribute)
+            for claim in claims
+            if claim.subject_id != UNSPECIFIED_TARGET
+        }
+
+        # A Process/Spec run may have no transcript at all. The spec still tells the
+        # camera what to look at: objects by presence, steps by completion.
+        checklist = config.checklist
+        if checklist is not None:
+            for name in checklist.expected_objects:
+                target_set.add((aliases.resolve(name), Attribute.PRESENCE))
+            for step in checklist.steps:
+                target_set.add((step.step_id, Attribute.STEP_COMPLETED))
+
+        targets = tuple(sorted(target_set, key=lambda pair: (pair[0], pair[1].value)))
         requested = sorted({subject for subject, _ in targets})
 
         semaphore = asyncio.Semaphore(config.max_concurrency)

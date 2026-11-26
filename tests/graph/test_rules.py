@@ -20,10 +20,10 @@ from insightscope.domain.ontology import Attribute
 from insightscope.reconcile import reconcile
 from insightscope.reconcile.rules import ALL_RULES
 
-SINGLE_STEP = ChecklistSpec(name="single", steps=[StepSpec(step_id="close_laptop")])
+SINGLE_STEP = ChecklistSpec(name="single", steps=[StepSpec(step_id="fill_kettle")])
 TWO_STEPS = ChecklistSpec(
     name="two",
-    steps=[StepSpec(step_id="close_laptop"), StepSpec(step_id="stow_pen")],
+    steps=[StepSpec(step_id="fill_kettle"), StepSpec(step_id="pour_water")],
 )
 
 
@@ -117,33 +117,42 @@ CASES: list[Case] = [
         expected={("R-SUBJ-001", "subject_unmatched", "info")},
     ),
     Case(
-        name="step rules are off without a checklist",
-        claims=[claim("close_laptop", Attribute.STEP_COMPLETED, True)],
+        name="step rules are off without a spec",
+        claims=[claim("fill_kettle", Attribute.STEP_COMPLETED, True)],
         expected=set(),
     ),
     Case(
         name="claimed step with no visual support",
-        claims=[claim("close_laptop", Attribute.STEP_COMPLETED, True)],
+        claims=[claim("fill_kettle", Attribute.STEP_COMPLETED, True)],
         checklist=SINGLE_STEP,
         expected={("R-STEP-001", "unsupported", "major")},
     ),
     Case(
         name="steps claimed out of catalog order",
         claims=[
-            claim("stow_pen", Attribute.STEP_COMPLETED, True, start=5.0),
-            claim("close_laptop", Attribute.STEP_COMPLETED, True, start=10.0),
+            claim("pour_water", Attribute.STEP_COMPLETED, True, start=5.0),
+            claim("fill_kettle", Attribute.STEP_COMPLETED, True, start=10.0),
         ],
         observations=[
-            observation("stow_pen", Attribute.STEP_COMPLETED, True, start=5.0),
-            observation("close_laptop", Attribute.STEP_COMPLETED, True, start=10.0),
+            observation("pour_water", Attribute.STEP_COMPLETED, True, start=5.0),
+            observation("fill_kettle", Attribute.STEP_COMPLETED, True, start=10.0),
         ],
         checklist=TWO_STEPS,
         expected={("R-STEP-002", "sequence_violation", "major")},
     ),
     Case(
-        name="checklist step never mentioned and never seen",
-        claims=[claim("close_laptop", Attribute.STEP_COMPLETED, True)],
-        observations=[observation("close_laptop", Attribute.STEP_COMPLETED, True)],
+        name="silent video shows steps out of order",
+        observations=[
+            observation("pour_water", Attribute.STEP_COMPLETED, True, start=5.0),
+            observation("fill_kettle", Attribute.STEP_COMPLETED, True, start=10.0),
+        ],
+        checklist=TWO_STEPS,
+        expected={("R-STEP-002", "sequence_violation", "major")},
+    ),
+    Case(
+        name="spec step never mentioned and never seen",
+        claims=[claim("fill_kettle", Attribute.STEP_COMPLETED, True)],
+        observations=[observation("fill_kettle", Attribute.STEP_COMPLETED, True)],
         checklist=TWO_STEPS,
         expected={("R-STEP-003", "missing_step", "major")},
     ),
@@ -160,9 +169,9 @@ CASES: list[Case] = [
     ),
     Case(
         name="omission ignores subjects that were mentioned",
-        claims=[claim("coffee_mug", Attribute.PRESENCE, True)],
-        observations=[observation("coffee_mug", Attribute.PRESENCE, True)],
-        changes=[change_event("coffee_mug")],
+        claims=[claim("mug", Attribute.PRESENCE, True)],
+        observations=[observation("mug", Attribute.PRESENCE, True)],
+        changes=[change_event("mug")],
         flag_omissions=True,
         expected=set(),
     ),

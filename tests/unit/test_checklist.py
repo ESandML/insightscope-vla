@@ -12,21 +12,27 @@ from insightscope.domain.checklist import (
     load_checklist,
 )
 
-FIXTURE = Path(__file__).parent.parent / "fixtures" / "checklists" / "desk.yaml"
+FIXTURE = Path(__file__).parent.parent / "fixtures" / "checklists" / "make_coffee.yaml"
 
 
 def test_loads_demo_checklist() -> None:
     spec = load_checklist(FIXTURE)
-    assert spec.name == "pack_the_desk"
-    assert spec.step_ids() == ("unplug_charger", "close_laptop", "mug_to_tray", "stow_pen")
-    assert "coffee_mug" in spec.expected_objects
+    assert spec.name == "make_coffee"
+    assert spec.step_ids() == (
+        "fill_kettle",
+        "boil_kettle",
+        "spoon_coffee",
+        "pour_water",
+        "stir_coffee",
+    )
+    assert "mug" in spec.expected_objects
 
 
 def test_alias_table_covers_objects_and_steps() -> None:
     spec = load_checklist(FIXTURE)
     table = spec.alias_table()
-    assert table.resolve("cup") == "coffee_mug"
-    assert table.resolve("close laptop") == "close_laptop"
+    assert table.resolve("cup") == "mug"
+    assert table.resolve("electric kettle") == "kettle"
 
 
 def test_step_ids_must_be_unique() -> None:
@@ -58,10 +64,10 @@ def test_duplicate_objects_are_rejected() -> None:
 
 def test_round_trip_is_human_readable(tmp_path: Path) -> None:
     spec = load_checklist(FIXTURE)
-    out = dump_checklist(spec, tmp_path / "nested" / "desk.yaml")
+    out = dump_checklist(spec, tmp_path / "nested" / "coffee.yaml")
 
     text = out.read_text(encoding="utf-8")
-    assert "pack_the_desk" in text
+    assert "make_coffee" in text
     assert "steps:" in text
     assert load_checklist(out) == spec
 
