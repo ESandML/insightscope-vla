@@ -1249,6 +1249,7 @@ ui = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "gradio" },
     { name = "import-linter" },
     { name = "mypy" },
     { name = "pytest" },
@@ -1276,6 +1277,7 @@ provides-extras = ["llm", "asr", "ui"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "gradio", specifier = ">=5.0" },
     { name = "import-linter", specifier = ">=2.0" },
     { name = "mypy", specifier = ">=1.11" },
     { name = "pytest", specifier = ">=8.0" },

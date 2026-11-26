@@ -1,8 +1,12 @@
-.PHONY: setup check lint fmt type test clean
+.PHONY: setup check lint fmt type test arch clean ui
 
 ## One-time (or after dependency changes): create .venv and install everything.
 setup:
 	uv sync
+
+## Launch the browser demo.
+ui:
+	uv run python app.py
 
 ## Everything CI runs. Run this before every push.
 check: lint type test arch
