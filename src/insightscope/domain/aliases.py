@@ -16,8 +16,54 @@ from types import MappingProxyType
 
 UNSPECIFIED_TARGET = "unspecified_target"
 
-_PRONOUNS = {"this", "that", "it", "these", "those", "them"}
-_DETERMINERS = {"the", "a", "an", "my", "your", "our", "their", UNSPECIFIED_TARGET}
+_PRONOUNS = {
+    # demonstratives
+    "this",
+    "that",
+    "these",
+    "those",
+    # object / thing
+    "it",
+    "its",
+    "itself",
+    "one",
+    "ones",
+    # masculine
+    "he",
+    "him",
+    "his",
+    "himself",
+    # feminine
+    "she",
+    "her",
+    "hers",
+    "herself",
+    # plural / neutral
+    "they",
+    "them",
+    "theirs",
+    "themselves",
+}
+_DETERMINERS = {
+    # articles
+    "the",
+    "a",
+    "an",
+    # possessives
+    "my",
+    "your",
+    "our",
+    "their",
+    "his",
+    "her",
+    "its",
+    # demonstratives: "this mug" is a mug, not a subject named "this_mug"
+    "this",
+    "that",
+    "these",
+    "those",
+    UNSPECIFIED_TARGET,
+}
 
 
 class AliasError(ValueError):

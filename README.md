@@ -58,13 +58,29 @@ insightscope keyframes clip.mp4
 # Show the same selection with transcript-aware "before/after" frames.
 insightscope keyframes clip.mp4 --transcript transcript.json
 
-# Full pipeline (scripted clients until the Ollama slice lands).
-insightscope audit clip.mp4 --transcript transcript.json
+# Draft a checklist, inspect it, then use it. The model proposes; you approve.
+insightscope checklist new "close the laptop, mug on the tray, stow the pen" -o desk.yaml
 insightscope audit clip.mp4 --transcript transcript.json --checklist desk.yaml
+
+# Offline: scripted clients, or a recorded cassette of real model responses.
+insightscope audit clip.mp4 --transcript transcript.json
+insightscope audit clip.mp4 --transcript transcript.json --replay desk.cassette.json
+```
+
+Local models, via Ollama:
+
+```bash
+uv sync --extra llm --extra asr          # OpenAI-compatible client + speech-to-text
+ollama pull llama3.2-vision
+ollama pull llama3.1:8b
+
+# No transcript? Transcribe the clip's audio, then audit.
+insightscope audit clip.mp4 --client ollama
 ```
 
 `--transcript` accepts a timestamped `.json` or a plain `.txt`. A `.txt` has no
-timestamps, so alignment is reported as degraded rather than invented.
+timestamps, so alignment is reported as degraded rather than invented. `--record`
+writes every model response to a cassette so a run can be replayed later.
 
 ## The demo task
 
@@ -82,9 +98,10 @@ lid open at 00:12"*, or *"you opened the drawer but never mentioned it"*.
   outside that list is not extracted rather than guessed at.
 - **Prove absence.** If no keyframe covers a moment, the finding says "insufficient
   evidence", never "you didn't do it".
-- **Audit real footage with a model yet.** The CLI already runs the real telemetry path
-  (OpenCV keyframes + transcript loading); model-backed extraction over Ollama is the
-  next Phase 2 slice. Until then `audit` runs the graph with scripted clients.
+- **Run without a model server unless you choose to.** `--client fake` and `--replay`
+  exercise the whole pipeline offline; `--client ollama` needs a local server plus the
+  `llm` extra. Transcription uses faster-whisper `small.en` by default — an edge
+  compromise, not a production speech pipeline.
 
 ## Docs
 

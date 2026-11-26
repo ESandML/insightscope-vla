@@ -23,9 +23,56 @@ def test_normalize_subject(raw: str, expected: str) -> None:
     assert normalize_subject(raw) == expected
 
 
-@pytest.mark.parametrize("raw", ["this", "That", "it", "those"])
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "this",
+        "That",
+        "these",
+        "those",
+        "it",
+        "its",
+        "itself",
+        "he",
+        "Him",
+        "his",
+        "himself",
+        "she",
+        "her",
+        "hers",
+        "herself",
+        "they",
+        "them",
+        "theirs",
+        "themselves",
+        "one",
+        "ones",
+    ],
+)
 def test_pronouns_become_unspecified(raw: str) -> None:
     assert normalize_subject(raw) == UNSPECIFIED_TARGET
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("his bowl", "bowl"),
+        ("her mug", "mug"),
+        ("its lid", "lid"),
+        ("their tray", "tray"),
+        ("this drawer", "drawer"),
+        ("those pens", "pens"),
+        ("my laptop", "laptop"),
+    ],
+)
+def test_possessive_or_demonstrative_prefix_is_stripped(raw: str, expected: str) -> None:
+    assert normalize_subject(raw) == expected
+
+
+def test_possessive_pronoun_and_phrase_diverge() -> None:
+    """Standalone 'her' is unresolved; 'her mug' is a mug."""
+    assert normalize_subject("her") == UNSPECIFIED_TARGET
+    assert normalize_subject("her mug") == "mug"
 
 
 def test_empty_subject_is_an_error() -> None:
