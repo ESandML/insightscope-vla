@@ -24,6 +24,26 @@ class TranscriptionError(RuntimeError):
     """The audio produced no usable speech segments."""
 
 
+def has_audio_stream(video_path: str | Path) -> bool:
+    """True when the container has at least one audio stream.
+
+    Returns True when it cannot tell (PyAV missing, container unreadable): a caller
+    should let transcription produce the specific error rather than claim silence.
+    PyAV ships with faster-whisper, so when the ``asr`` extra is installed this is a
+    real check.
+    """
+    try:
+        import av
+    except ImportError:
+        return True
+
+    try:
+        with av.open(str(video_path)) as container:
+            return any(stream.type == "audio" for stream in container.streams)
+    except Exception:
+        return True
+
+
 def transcribe(
     audio_path: str | Path,
     *,

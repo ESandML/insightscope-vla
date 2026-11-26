@@ -272,7 +272,7 @@ def forbid_whisper(monkeypatch: pytest.MonkeyPatch) -> None:
     def boom(*args: object, **kwargs: object) -> object:
         raise AssertionError("whisper must not run in this input mode")
 
-    monkeypatch.setattr("insightscope.cli.transcribe", boom)
+    monkeypatch.setattr("insightscope.pipeline.transcribe", boom)
 
 
 def audit_args(tmp_path: Path, *extra: str) -> list[str]:
@@ -361,7 +361,8 @@ def test_listen_mode_transcribes_the_audio(
             mode="asr",
         )
 
-    monkeypatch.setattr("insightscope.cli.transcribe", fake_transcribe)
+    monkeypatch.setattr("insightscope.pipeline.transcribe", fake_transcribe)
+    monkeypatch.setattr("insightscope.pipeline.has_audio_stream", lambda _path: True)
 
     code = main(audit_args(tmp_path))
 
@@ -429,7 +430,8 @@ def whisper_returning(
             mode="asr",
         )
 
-    monkeypatch.setattr("insightscope.cli.transcribe", fake_transcribe)
+    monkeypatch.setattr("insightscope.pipeline.transcribe", fake_transcribe)
+    monkeypatch.setattr("insightscope.pipeline.has_audio_stream", lambda _path: True)
     return calls
 
 
@@ -515,3 +517,58 @@ def test_spec_report_splits_findings(tmp_path: Path) -> None:
     assert "### Process / Spec Compliance" in report
     assert "### Speech / Transcript Verification" in report
     assert "No speech or observation conflicts." in report
+
+
+def test_listen_fails_fast_when_the_video_has_no_audio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: object
+) -> None:
+    write_test_video(tmp_path / "clip.avi", flash_at=None)
+    monkeypatch.setattr("insightscope.pipeline.has_audio_stream", lambda _path: False)
+
+    code = main(audit_args(tmp_path))
+
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert code == 2
+    assert "no audio track" in captured.err
+    assert "--audio" in captured.err
+
+
+def test_audio_flag_transcribes_a_separate_recording(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: object
+) -> None:
+    write_test_video(tmp_path / "clip.avi", flash_at=None)
+    voice = tmp_path / "voice.wav"
+    voice.write_bytes(b"RIFF")
+    calls = whisper_returning(monkeypatch)
+
+    code = main(audit_args(tmp_path, "--audio", str(voice)))
+
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert code == 0
+    assert calls["path"] == voice
+    assert "audio (" in captured.out
+    assert str(voice) in captured.out
+
+
+def test_audio_with_spec_is_a_hybrid_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: object
+) -> None:
+    write_test_video(tmp_path / "clip.avi", flash_at=None)
+    voice = tmp_path / "voice.wav"
+    voice.write_bytes(b"RIFF")
+    whisper_returning(monkeypatch)
+
+    code = main(audit_args(tmp_path, "--audio", str(voice), "--spec", str(CHECKLIST)))
+
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert code == 0
+    assert "hybrid (audio + spec make_coffee" in captured.out
+
+
+def test_audio_and_listen_are_mutually_exclusive(tmp_path: Path) -> None:
+    write_test_video(tmp_path / "clip.avi")
+    voice = tmp_path / "voice.wav"
+    voice.write_bytes(b"RIFF")
+
+    with pytest.raises(SystemExit):
+        main(audit_args(tmp_path, "--audio", str(voice), "--listen"))

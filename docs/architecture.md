@@ -38,6 +38,7 @@ This is enforced by an import-linter contract in CI, not by good intentions.
 | Spec | `--spec` (alias `--checklist`) | none (audio ignored) | YAML spec loaded |
 | Audio + process | `--listen --process` | faster-whisper | LLM → YAML spec |
 | Audio + spec | `--listen --spec` | faster-whisper | YAML spec loaded |
+| External audio | `--audio FILE` | separate recording | open-ended claims |
 | Transcript + process | `--transcript FILE --process` | file | LLM → YAML spec |
 | Transcript + spec | `--transcript FILE --spec` | file | YAML spec loaded |
 
@@ -46,9 +47,18 @@ mutually exclusive as references, and `--listen`/`--transcript` are mutually exc
 speech sources. `--process` and `--spec` default to silence; `--listen` forces Whisper
 even when a spec reference is present, which produces the four hybrid modes.
 
-Whisper is gated by one branch in the CLI: it runs when the speech source is `listen`,
-which by default means "no spec reference". Hybrid runs are reported as
+Whisper is gated by one branch in the CLI: it runs when the speech source is `listen`
+or `audio`, which by default means "no spec reference". Hybrid runs are reported as
 `hybrid (listen + spec make_coffee)`, never as one of the single modes.
+
+Listen mode probes the container first. `has_audio_stream` uses PyAV (a faster-whisper
+dependency) and returns True when it cannot tell, so a silent clip fails with a clear
+"pass --audio, --transcript, or a --spec/--process" message instead of an opaque
+transcription error.
+
+The Gradio UI does not re-implement any of this: it calls `plan_for` in
+`insightscope.inputs` and runs `prepare_run`/`execute_run` from `insightscope.pipeline`,
+the same functions the CLI uses.
 
 A **process description** is plain English. An **audit spec** is the validated YAML
 (`ChecklistSpec`). Generation is a separate, inspectable step: mode 3 writes the spec to

@@ -63,8 +63,8 @@ is in progress.
 | 0 | Repo, packaging, CI, docs | done |
 | 1 | Domain vocabulary, deterministic rules, full graph with fake models | done |
 | 2 | OpenCV keyframes, faster-whisper, Ollama clients, cassettes | done |
-| 2.5 | Unified input modes, visual step verification, kitchen demo | in progress |
-| 3 | Gradio UI, nightly evals, releases | not started |
+| 2.5 | Unified input modes, visual step verification, kitchen demo | done |
+| 3 | Gradio UI, nightly evals, releases | in progress |
 
 ## Quick start
 
@@ -129,16 +129,35 @@ insightscope keyframes clip.mp4 --transcript transcript.json
 
 ## Demo
 
-> **Demo clip and Gradio walkthrough land in Slice B.**
->
-> Planned: a 30-second kitchen clip — filling the kettle, spooning coffee, pouring water —
-> opened in the browser. Drop the clip in, watch keyframes get selected with their reasons,
-> see flagged frames appear where the narration and the video disagree, read the report,
-> and browse the SQLite history.
+```bash
+uv sync              # dev install includes the UI dependency
+make ui              # or: uv sync --extra ui && uv run python app.py
+```
+
+Open <http://127.0.0.1:7860>.
+
+1. **Drop in a kitchen clip.** If it has sound, **Listen to video audio** is enabled. If
+   it is silent, the checkbox is disabled with a "No audio track detected" note and an
+   external-audio dropzone appears (`.wav` / `.mp3` / `.m4a`).
+2. **Describe the process** — "fill the kettle, boil it, spoon coffee into the mug, pour,
+   stir" — and press **Generate Spec**. The YAML lands in the *Assertions & Spec* tab,
+   where you can edit it before running. You can also drop in
+   [`tests/fixtures/checklists/make_coffee.yaml`](tests/fixtures/checklists/make_coffee.yaml)
+   directly.
+3. **Pick a client.** `fake` for an offline walkthrough, `cassette replay` to replay a
+   recorded run, `ollama` for real inference. Toggle omissions if you want
+   "moved but never mentioned" findings.
+4. **Run Audit.** The status line tracks graph stages, then the tabs fill in: keyframes
+   with their `reason` badges, annotated frames per finding, assertions and the spec as
+   JSON/YAML, the Markdown report with separate Process/Spec and Speech tables, and past
+   runs from `audits.db`.
+
+The UI builds the same `InputPlan` and calls the same pipeline as the CLI, so
+`insightscope audit clip.mp4 --spec make_coffee.yaml` produces the identical run
+directory. That is deliberate: there is one routing implementation, not two.
 
 The task it demonstrates is "make coffee": fill the kettle → boil → spoon coffee → pour
-water → stir. The fixture lives at
-[`tests/fixtures/checklists/make_coffee.yaml`](tests/fixtures/checklists/make_coffee.yaml).
+water → stir.
 
 The audit reports things like *"you said you poured the water; the frames show the kettle
 still on its base at 00:18"*, or — when omissions are enabled — *"the mug was moved but

@@ -43,6 +43,7 @@ ui = ["gradio>=5.0"]
 
 [dependency-groups]
 dev = [
+  "gradio>=5.0",
   "import-linter>=2.0",
   "mypy>=1.11",
   "pytest>=8.0",
@@ -89,6 +90,7 @@ module = [
   "openai.*",
   "faster_whisper",
   "faster_whisper.*",
+  "av",
 ]
 ignore_missing_imports = true
 
