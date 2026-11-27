@@ -9,6 +9,8 @@ import pytest
 from insightscope.domain.checklist import ChecklistError
 from insightscope.ui.specs import (
     NEW_SPEC,
+    delete_enabled,
+    delete_spec,
     generate_enabled,
     normalise_filename,
     save_enabled,
@@ -90,3 +92,37 @@ def test_save_new_spec_refuses_duplicates(tmp_path: Path) -> None:
 
     with pytest.raises(ChecklistError, match="already exists"):
         save_new_spec(VALID, "make_tea.yaml", specs)
+
+
+def test_delete_spec_removes_the_file(tmp_path: Path) -> None:
+    specs = tmp_path / "specs"
+    save_new_spec(VALID, "make_tea", specs)
+
+    delete_spec("make_tea.yaml", specs)
+
+    assert not (specs / "make_tea.yaml").exists()
+
+
+def test_delete_spec_rejects_new_spec_marker(tmp_path: Path) -> None:
+    with pytest.raises(ChecklistError, match="cannot delete"):
+        delete_spec(NEW_SPEC, tmp_path / "specs")
+
+
+@pytest.mark.parametrize("filename", ["../escape.yaml", "nested/x.yaml", "/etc/passwd"])
+def test_delete_spec_rejects_paths(filename: str, tmp_path: Path) -> None:
+    with pytest.raises(ChecklistError):
+        delete_spec(filename, tmp_path / "specs")
+
+
+def test_delete_spec_reports_missing_files(tmp_path: Path) -> None:
+    specs = tmp_path / "specs"
+    specs.mkdir()
+
+    with pytest.raises(ChecklistError, match="no such spec"):
+        delete_spec("make_tea.yaml", specs)
+
+
+def test_delete_enabled_only_for_existing_specs() -> None:
+    assert delete_enabled("make_tea.yaml") is True
+    assert delete_enabled(NEW_SPEC) is False
+    assert delete_enabled("") is False

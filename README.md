@@ -180,7 +180,10 @@ Open <http://127.0.0.1:7860>.
    as soon as the page opens. Validation runs live: while the YAML is invalid, a status
    line under the editor explains why and **Save Spec** stays disabled. Save enables only
    when the text is valid *and* differs from the loaded file, then writes back to that
-   same filename and preserves the `name:` you edited.
+   same filename and preserves the `name:` you edited. **Delete Spec** removes the file
+   and selects the next available spec (or `+ New spec`). If a file disappears outside
+   the app, selecting it refreshes the dropdown and loads a fallback instead of showing
+   stale YAML.
 3. **Or generate a spec.** With an existing spec selected, **Generate Spec** regenerates
    the YAML from the process description into the editor for that file; the saved file is
    untouched until you press **Save Spec**. Choose **+ New spec** to start a second file:
