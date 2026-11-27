@@ -175,22 +175,27 @@ Open <http://127.0.0.1:7860>.
 1. **Drop in a kitchen clip.** If it has sound, **Listen to video audio** is enabled. If
    it is silent, the checkbox is disabled with a "No audio track detected" note and an
    external-audio dropzone appears (`.wav` / `.mp3` / `.m4a`).
-2. **Pick a spec.** The *Saved audit spec (specs/)* dropdown lists every YAML file in
-   [`specs/`](specs/) and defaults to `make_tea.yaml`. The full YAML is shown and editable
-   directly beneath the dropdown as soon as the page loads. **Save Spec** writes edits
-   back under the selected filename; if you rename the spec inside the YAML, the file is
-   updated to match rather than duplicated. You can also type a process description and
-   press **Generate Spec**, or upload a `.yaml`; both are saved into `specs/` and appear
-   in the dropdown.
-3. **Pick a client.** The default is `ollama`, so a local server gives live generation and
+2. **Edit the preloaded spec.** The *Audit spec (specs/)* dropdown lists `+ New spec` plus
+   every saved YAML, and defaults to `make_tea.yaml`. Its YAML is loaded into the editor
+   as soon as the page opens. Validation runs live: while the YAML is invalid, a status
+   line under the editor explains why and **Save Spec** stays disabled. Save enables only
+   when the text is valid *and* differs from the loaded file, then writes back to that
+   same filename and preserves the `name:` you edited.
+3. **Or create a new spec.** Choose **+ New spec**: the editor clears and a **New spec
+   filename** box appears. **Generate Spec** enables only when both a filename and a
+   process description are present; **Save Spec** enables when the filename is set and
+   the YAML is valid. Existing filenames are refused with an error instead of being
+   overwritten. Uploaded `.yaml` files behave the same way and are selected in the
+   dropdown.
+4. **Pick a client.** The default is `ollama`, so a local server gives live generation and
    auditing. `fake` and `cassette replay` remain for offline runs — note that `fake`
    returns a scripted coffee fixture, and the status line says so if you generate a spec
    with it.
-4. **Run Audit.** The status line tracks graph stages, then the tabs fill in: keyframes
+5. **Run Audit.** The status line tracks graph stages, then the tabs fill in: keyframes
    with their `reason` badges, annotated frames per finding, assertions as JSON, the
    Markdown report with separate Process/Spec and Speech tables, and past runs from
-   `audits.db`. Edited YAML is saved back into `specs/` on run, so the file on disk is
-   what actually executed.
+   `audits.db`. Edited YAML is saved before running, so the file on disk is what actually
+   executed.
 
 The UI calls the same `InputPlan` and pipeline as the CLI, so
 `insightscope audit clip.mp4 --spec make_tea.yaml` produces the identical run directory.
