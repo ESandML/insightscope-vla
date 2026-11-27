@@ -13,6 +13,10 @@ aliases:
   milk: [milk carton, milk jug]
   spoon: [teaspoon]
 steps:
+  - step_id: fill_kettle
+    description: Fill the kettle with water
+  - step_id: boil_kettle
+    description: Boil the kettle
   - step_id: put_tea_bag_in_mug
     description: Put the tea bag into the mug
   - step_id: add_boiling_water

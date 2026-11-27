@@ -15,7 +15,6 @@ import gradio as gr
 
 from insightscope.actions.db import history
 from insightscope.config import Settings
-from insightscope.domain.checklist import save_spec_to_dir
 from insightscope.inputs import plan_for
 from insightscope.ui.service import (
     HISTORY_COLUMNS,
@@ -27,7 +26,7 @@ from insightscope.ui.service import (
 from insightscope.ui.specs import (
     default_spec_name,
     dropdown_update,
-    parse_spec_text,
+    initial_spec_text,
     read_spec_text,
     save_spec_text,
     spec_names,
@@ -82,12 +81,11 @@ def on_spec_upload(file: Any, specs_dir: Path | None = None) -> tuple[Any, Any, 
 
     try:
         text = path.read_text(encoding="utf-8")
-        spec = parse_spec_text(text)
-        saved = save_spec_to_dir(spec, root)
+        saved = save_spec_text(text, root)
     except Exception as exc:
         return gr.update(), dropdown_update(root), f"**error:** {exc}"
 
-    return text, dropdown_update(root, saved.name), f"Saved to `{saved}`."
+    return saved.text, dropdown_update(root, saved.path.name), f"Saved to `{saved.path}`."
 
 
 def on_select_spec(name: str | None, specs_dir: Path | None = None) -> tuple[Any, str]:
@@ -100,13 +98,17 @@ def on_select_spec(name: str | None, specs_dir: Path | None = None) -> tuple[Any
         return gr.update(), f"**error:** {exc}"
 
 
-def on_save_spec(spec_text: str, specs_dir: Path | None = None) -> tuple[Any, str]:
+def on_save_spec(
+    spec_text: str,
+    selected_spec: str | None = None,
+    specs_dir: Path | None = None,
+) -> tuple[Any, Any, str]:
     root = _root(specs_dir)
     try:
-        saved = save_spec_text(spec_text, root)
+        saved = save_spec_text(spec_text, root, selected_spec or None)
     except Exception as exc:
-        return dropdown_update(root), f"**error:** {exc}"
-    return dropdown_update(root, saved.name), f"Saved to `{saved}`."
+        return gr.update(), dropdown_update(root), f"**error:** {exc}"
+    return saved.text, dropdown_update(root, saved.path.name), f"Saved to `{saved.path}`."
 
 
 def on_generate(
@@ -122,15 +124,20 @@ def on_generate(
             client=_client_key(client),
             cassette_path=_as_path(cassette),
         )
-        spec = parse_spec_text(text)
-        saved = save_spec_to_dir(spec, root)
+        saved = save_spec_text(text, root)
     except Exception as exc:
         return gr.update(), dropdown_update(root), f"**error:** {exc}"
 
+    warning = ""
+    if _client_key(client) == "fake":
+        warning = (
+            " The fake client returns a scripted coffee fixture, so this file is a "
+            "placeholder — switch to ollama for a spec based on your description."
+        )
     return (
-        text,
-        dropdown_update(root, saved.name),
-        f"Spec saved to `{saved}`. Review it, then **Run Audit**.",
+        saved.text,
+        dropdown_update(root, saved.path.name),
+        f"Spec saved to `{saved.path}`.{warning}",
     )
 
 
@@ -150,6 +157,7 @@ def on_run(
     process_text: str,
     spec_text: str,
     spec_upload: Any,
+    selected_spec: str | None,
     client: str,
     cassette: Any,
     flag_omissions: bool,
@@ -168,15 +176,13 @@ def on_run(
 
     try:
         if upload is not None:
-            uploaded_text = upload.read_text(encoding="utf-8")
-            spec = parse_spec_text(uploaded_text)
-            save_spec_to_dir(spec, root)
-            spec_text = uploaded_text
+            saved_upload = save_spec_text(upload.read_text(encoding="utf-8"), root)
+            spec, spec_text = saved_upload.spec, saved_upload.text
             reference, generated = "spec", False
         elif spec_text.strip():
-            spec = parse_spec_text(spec_text)
             # Persist edits before running, so the file on disk is what ran.
-            save_spec_to_dir(spec, root)
+            saved_edit = save_spec_text(spec_text, root, selected_spec or None)
+            spec, spec_text = saved_edit.spec, saved_edit.text
             reference, generated = "spec", False
         elif process_text.strip():
             generated_text = generate_spec_text(
@@ -184,9 +190,8 @@ def on_run(
                 client=_client_key(client),
                 cassette_path=_as_path(cassette),
             )
-            spec = parse_spec_text(generated_text)
-            save_spec_to_dir(spec, root)
-            spec_text = generated_text
+            saved_process = save_spec_text(generated_text, root)
+            spec, spec_text = saved_process.spec, saved_process.text
             reference, generated = "process", True
         else:
             spec, reference, generated = None, "none", False
@@ -269,6 +274,7 @@ def build_ui() -> gr.Blocks:
     specs_dir = Settings().specs_dir
     choices = spec_names(specs_dir)
     selected = default_spec_name(specs_dir)
+    initial_yaml = initial_spec_text(specs_dir)
 
     with gr.Blocks(title="InsightScope-VLA") as demo:
         gr.Markdown(
@@ -297,6 +303,12 @@ def build_ui() -> gr.Blocks:
                     choices=choices,
                     value=selected,
                 )
+                spec_text = gr.Textbox(
+                    label="Audit spec (editable YAML)",
+                    lines=14,
+                    value=initial_yaml,
+                )
+                save_spec = gr.Button("Save Spec")
                 spec_upload = gr.File(
                     label="Upload audit spec (.yaml)",
                     file_types=[".yaml", ".yml"],
@@ -307,13 +319,11 @@ def build_ui() -> gr.Blocks:
                     lines=3,
                     placeholder="fill the kettle, add a tea bag, pour water, add milk",
                 )
-                with gr.Row():
-                    generate = gr.Button("Generate Spec")
-                    save_spec = gr.Button("Save Spec")
+                generate = gr.Button("Generate Spec")
                 with gr.Accordion("Run settings", open=False):
                     client = gr.Radio(
                         CLIENT_CHOICES,
-                        value="fake",
+                        value="ollama",
                         label="Client",
                     )
                     cassette = gr.File(
@@ -342,15 +352,11 @@ def build_ui() -> gr.Blocks:
                         columns=3,
                         height=420,
                     )
-                with gr.Tab("Assertions & Spec"):
+                with gr.Tab("Assertions"):
                     assertions = gr.Code(
                         label="Claims, observations, findings",
                         language="json",
                         lines=18,
-                    )
-                    spec_text = gr.Textbox(
-                        label="Audit spec (editable YAML)",
-                        lines=16,
                     )
                 with gr.Tab("Report"):
                     report = gr.Markdown()
@@ -382,7 +388,11 @@ def build_ui() -> gr.Blocks:
             [process_text, client, cassette],
             [spec_text, spec_choice, status],
         )
-        save_spec.click(on_save_spec, [spec_text], [spec_choice, status])
+        save_spec.click(
+            on_save_spec,
+            [spec_text, spec_choice],
+            [spec_text, spec_choice, status],
+        )
         run.click(
             on_run,
             [
@@ -392,6 +402,7 @@ def build_ui() -> gr.Blocks:
                 process_text,
                 spec_text,
                 spec_upload,
+                spec_choice,
                 client,
                 cassette,
                 omissions,

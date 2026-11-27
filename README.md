@@ -176,19 +176,21 @@ Open <http://127.0.0.1:7860>.
    it is silent, the checkbox is disabled with a "No audio track detected" note and an
    external-audio dropzone appears (`.wav` / `.mp3` / `.m4a`).
 2. **Pick a spec.** The *Saved audit spec (specs/)* dropdown lists every YAML file in
-   [`specs/`](specs/) and defaults to `make_tea.yaml`. Selecting one loads it into the
-   editable YAML box; **Save Spec** writes edits back. You can also type a process
-   description and press **Generate Spec**, upload a `.yaml`, or drop in
-   [`specs/make_tea.yaml`](specs/make_tea.yaml) directly — generated and uploaded specs
-   are saved into `specs/` and appear in the dropdown.
-3. **Pick a client.** `fake` for an offline walkthrough, `cassette replay` to replay a
-   recorded run, `ollama` for real inference. Toggle omissions if you want
-   "moved but never mentioned" findings.
+   [`specs/`](specs/) and defaults to `make_tea.yaml`. The full YAML is shown and editable
+   directly beneath the dropdown as soon as the page loads. **Save Spec** writes edits
+   back under the selected filename; if you rename the spec inside the YAML, the file is
+   updated to match rather than duplicated. You can also type a process description and
+   press **Generate Spec**, or upload a `.yaml`; both are saved into `specs/` and appear
+   in the dropdown.
+3. **Pick a client.** The default is `ollama`, so a local server gives live generation and
+   auditing. `fake` and `cassette replay` remain for offline runs — note that `fake`
+   returns a scripted coffee fixture, and the status line says so if you generate a spec
+   with it.
 4. **Run Audit.** The status line tracks graph stages, then the tabs fill in: keyframes
-   with their `reason` badges, annotated frames per finding, assertions and the spec as
-   JSON/YAML, the Markdown report with separate Process/Spec and Speech tables, and past
-   runs from `audits.db`. Edited YAML is saved back into `specs/` on run, so the file on
-   disk is what actually executed.
+   with their `reason` badges, annotated frames per finding, assertions as JSON, the
+   Markdown report with separate Process/Spec and Speech tables, and past runs from
+   `audits.db`. Edited YAML is saved back into `specs/` on run, so the file on disk is
+   what actually executed.
 
 The UI calls the same `InputPlan` and pipeline as the CLI, so
 `insightscope audit clip.mp4 --spec make_tea.yaml` produces the identical run directory.

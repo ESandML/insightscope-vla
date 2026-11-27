@@ -59,13 +59,13 @@ def request(tmp_path: Path, **overrides: object) -> UiRequest:
         artifacts_dir=tmp_path / "artifacts",
         db_path=tmp_path / "audits.db",
         specs_dir=tmp_path / "specs",
+        client="fake",
     )
     return replace(base, **overrides)  # type: ignore[arg-type]
 
 
 def test_open_ended_run_returns_display_values(tmp_path: Path) -> None:
     result = run_ui_audit(request(tmp_path), clients=fake_triple())
-
     assert result.ok
     assert result.status == "complete"
     assert "Audit report" in result.report_markdown
@@ -143,3 +143,7 @@ def test_errors_are_returned_not_raised(tmp_path: Path) -> None:
     )
     assert not result.ok
     assert result.error is not None
+
+
+def test_ui_request_defaults_to_ollama() -> None:
+    assert UiRequest(clip=Path("clip.mp4"), plan=plan_for()).client == "ollama"

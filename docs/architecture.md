@@ -76,8 +76,9 @@ All specs live in one place. `resolve_spec_path` accepts a bare name
 directory components, so a spec is always exactly one file in the directory.
 
 Generated specs are written to `specs/<name>.yaml` as well as the run directory. The
-Gradio UI lists `specs/` in its dropdown, saves uploads and edits there, and defaults to
-`make_tea.yaml`. The fixture used by tests
+Gradio UI lists `specs/` in its dropdown, preloads the selected spec (default
+`make_tea.yaml`) into an editor on the left, saves uploads and edits there, and defaults
+to the `ollama` client for live runs. The fixture used by tests
 (`tests/fixtures/checklists/make_coffee.yaml`) is deliberately separate and not part of
 the user-facing store.
 
