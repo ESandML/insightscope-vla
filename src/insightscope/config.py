@@ -87,6 +87,9 @@ class RunConfig(BaseModel):
     artifacts_dir: Path = Path("artifacts")
     db_path: Path = Path("audits.db")
 
+    # All audit specs live here; --spec and generated specs are confined to it.
+    specs_dir: Path = Path("specs")
+
     # Open-ended by default. Supplying a checklist enables the step rules only.
     checklist: ChecklistSpec | None = None
 
@@ -109,6 +112,7 @@ class Settings(BaseSettings):
     vision_model: str = "llama3.2-vision"
     text_model: str = "llama3.1:8b"
     llm_timeout_s: float = 120.0
+    specs_dir: Path = Path("specs")
 
 
 def config_from_yaml(path: str | Path) -> RunConfig:

@@ -35,6 +35,8 @@ from insightscope.domain.checklist import (
     ChecklistError,
     ChecklistSpec,
     load_checklist,
+    resolve_spec_path,
+    save_spec_to_dir,
 )
 from insightscope.inputs import InputPlan, plan_for
 from insightscope.pipeline import (
@@ -103,6 +105,12 @@ def build_parser() -> argparse.ArgumentParser:
     audit.add_argument("--artifacts-dir", type=Path, default=Path("artifacts"))
     audit.add_argument("--db", type=Path, default=Path("audits.db"))
     audit.add_argument(
+        "--specs-dir",
+        type=Path,
+        default=None,
+        help="directory holding audit specs (default: specs/, or INSIGHTSCOPE_SPECS_DIR)",
+    )
+    audit.add_argument(
         "--flag-omissions",
         action="store_true",
         help="report visible changes that were never mentioned (noisy)",
@@ -165,7 +173,19 @@ def build_parser() -> argparse.ArgumentParser:
     spec_sub = spec.add_subparsers(dest="spec_command", required=True)
     new = spec_sub.add_parser("new", help="draft an audit spec from a process description")
     new.add_argument("description", help="plain-English process description")
-    new.add_argument("-o", "--output", type=Path, required=True, help="YAML file to write")
+    new.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        required=True,
+        help="file name inside specs/, e.g. make_tea.yaml",
+    )
+    new.add_argument(
+        "--specs-dir",
+        type=Path,
+        default=None,
+        help="directory to write the spec into (default: specs/)",
+    )
     _add_client_arguments(new)
 
     return parser
@@ -230,9 +250,10 @@ def _keyframes_command(args: argparse.Namespace) -> int:
 
 def _audit_command(args: argparse.Namespace) -> int:
     clip: Path = args.clip
+    specs_dir = _specs_dir(args)
     clients = _clients(args)
     plan = _plan(args)
-    spec, generated = _resolve_spec(args, clients.generator)
+    spec, generated = _resolve_spec(args, clients.generator, specs_dir)
 
     bundle = resolve_transcript(
         plan=plan,
@@ -249,6 +270,7 @@ def _audit_command(args: argparse.Namespace) -> int:
         flag_omissions=bool(args.flag_omissions),
         artifacts_dir=args.artifacts_dir,
         db_path=args.db,
+        specs_dir=specs_dir,
         models=_model_choice(args),
     )
     prepared = prepare_run(
@@ -273,6 +295,8 @@ def _audit_command(args: argparse.Namespace) -> int:
     print(f"claims:    {len(outcome.state.get('claims') or [])}")
     print(f"findings:  {len(report.findings)}")
     print(f"report:    {outcome.report_path}")
+    if prepared.spec_path is not None:
+        print(f"spec file: {prepared.spec_path}")
     print(f"clients:   {_describe_clients(args)}")
 
     return 0 if report.status in ("complete", "complete_with_caveats") else 1
@@ -280,21 +304,20 @@ def _audit_command(args: argparse.Namespace) -> int:
 
 def _spec_new_command(args: argparse.Namespace) -> int:
     clients = _clients(args)
+    specs_dir = _specs_dir(args)
 
     spec = asyncio.run(clients.generator.generate_checklist(args.description))
-    path = _dump_spec(spec, args.output)
+    path = save_spec_to_dir(spec, specs_dir, str(args.output))
 
     print(f"wrote {path}")
     print(f"name: {spec.name} | objects: {len(spec.expected_objects)} | steps: {len(spec.steps)}")
     print("review and edit it, then run:")
-    print(f"  insightscope audit CLIP --spec {path}")
+    print(f"  insightscope audit CLIP --spec {path.name} --specs-dir {specs_dir}")
     return 0
 
 
-def _dump_spec(spec: ChecklistSpec, path: Path) -> Path:
-    from insightscope.domain.checklist import dump_checklist
-
-    return dump_checklist(spec, path)
+def _specs_dir(args: argparse.Namespace) -> Path:
+    return Path(args.specs_dir) if args.specs_dir is not None else Settings().specs_dir
 
 
 def _plan(args: argparse.Namespace) -> InputPlan:
@@ -307,10 +330,12 @@ def _plan(args: argparse.Namespace) -> InputPlan:
     )
 
 
-def _resolve_spec(args: argparse.Namespace, generator: Any) -> tuple[ChecklistSpec | None, bool]:
+def _resolve_spec(
+    args: argparse.Namespace, generator: Any, specs_dir: Path
+) -> tuple[ChecklistSpec | None, bool]:
     """Return (spec, was_generated). Generation is the only model call here."""
     if args.spec is not None:
-        return load_checklist(args.spec), False
+        return load_checklist(resolve_spec_path(args.spec, specs_dir)), False
 
     description: str | None = args.process
     if description is None and args.process_file is not None:

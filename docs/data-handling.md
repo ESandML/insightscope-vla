@@ -9,6 +9,7 @@ Short version: everything stays on your machine, and your face never goes into g
 | Source clip / audio | wherever you keep it | no |
 | Extracted keyframes, flagged frames | `artifacts/<run_id>/` | no |
 | Audit history | `audits.db` | no |
+| Audit specs | `specs/` | curated ones, yes |
 | Model weights | pulled by Ollama, outside the repo | no |
 | Settings / API keys | `.env` | no (`.env.example` is) |
 
@@ -24,6 +25,9 @@ Short version: everything stays on your machine, and your face never goes into g
    default test suite — that is deliberate.
 4. **Don't paste transcripts into issues.** Even for a kitchen-counter demo, a transcript
    can contain names and locations. Reproduce with a minimal synthetic example.
+5. **Specs are user content, not run output.** Curated files in `specs/` are committed on
+   purpose. Generated specs written there are for inspection; delete them if you do not
+   want them in the repository.
 
 ## If this is later used with real recordings
 

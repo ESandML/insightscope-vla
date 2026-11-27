@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from insightscope.config import RunConfig
-from insightscope.domain.checklist import ChecklistSpec, dump_checklist
+from insightscope.domain.checklist import ChecklistSpec, dump_checklist, save_spec_to_dir
 from insightscope.domain.models import AuditReport, EvidenceManifest
 from insightscope.graph.build import build_graph
 from insightscope.inputs import InputPlan
@@ -38,6 +38,7 @@ class PreparedRun:
     evidence: EvidenceManifest
     plan: InputPlan
     generated_spec_path: Path | None = None
+    spec_path: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,8 +94,11 @@ def prepare_run(
     run_dir = config.artifacts_dir / run_id
 
     generated_path: Path | None = None
+    spec_path: Path | None = None
     if generated_spec and config.checklist is not None:
         generated_path = dump_checklist(config.checklist, run_dir / "generated_spec.yaml")
+        # Also keep the canonical copy where the user expects to inspect it.
+        spec_path = save_spec_to_dir(config.checklist, config.specs_dir)
 
     keyframes = select_keyframes(
         video_path=clip,
@@ -117,6 +121,7 @@ def prepare_run(
         evidence=evidence,
         plan=plan,
         generated_spec_path=generated_path,
+        spec_path=spec_path,
     )
 
 

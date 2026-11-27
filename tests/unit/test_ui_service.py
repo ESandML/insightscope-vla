@@ -58,6 +58,7 @@ def request(tmp_path: Path, **overrides: object) -> UiRequest:
         transcript_path=transcript(tmp_path),
         artifacts_dir=tmp_path / "artifacts",
         db_path=tmp_path / "audits.db",
+        specs_dir=tmp_path / "specs",
     )
     return replace(base, **overrides)  # type: ignore[arg-type]
 
@@ -105,6 +106,7 @@ def test_generated_spec_is_written_to_the_run_directory(tmp_path: Path) -> None:
     assert result.ok
     generated = list((tmp_path / "artifacts").glob("*/generated_spec.yaml"))
     assert generated and "make_coffee" in generated[0].read_text(encoding="utf-8")
+    assert (tmp_path / "specs" / "make_coffee.yaml").exists()
 
 
 def test_run_can_be_replayed_from_a_cassette(tmp_path: Path) -> None:

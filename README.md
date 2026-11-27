@@ -104,14 +104,18 @@ insightscope audit clip.mp4 \
   --client ollama
 
 # 4. Spec: draft once, inspect it, then audit against it.
-insightscope spec new "fill the kettle, boil, spoon coffee, pour, stir" -o coffee.yaml
-insightscope audit clip.mp4 --spec coffee.yaml --client ollama
+insightscope spec new "put a tea bag in the mug, pour boiling water, brew, remove the bag, add milk" -o make_tea.yaml
+insightscope audit clip.mp4 --spec make_tea.yaml --client ollama
 
 # Hybrids: add speech (clip audio, transcript, or a separate recording) to a spec.
-insightscope audit clip.mp4 --listen --spec coffee.yaml --client ollama
-insightscope audit clip.mp4 --transcript transcript.json --spec coffee.yaml
-insightscope audit silent.mp4 --audio voice.wav --spec coffee.yaml --client ollama
+insightscope audit clip.mp4 --listen --spec make_tea.yaml --client ollama
+insightscope audit clip.mp4 --transcript transcript.json --spec make_tea.yaml
+insightscope audit silent.mp4 --audio voice.wav --spec make_tea.yaml --client ollama
 ```
+
+Specs live in [`specs/`](specs/). `-o` and `--spec` accept a bare name (`make_tea` or
+`make_tea.yaml`) and refuse anything that resolves outside that directory; pass
+`--specs-dir DIR` to keep them somewhere else.
 
 `--checklist` is an alias for `--spec`, and `insightscope checklist new` for
 `insightscope spec new`.
@@ -139,7 +143,8 @@ ollama pull llama3.1:8b
 | `--listen` | Transcribe the clip's audio, including alongside `--process`/`--spec` |
 | `--audio FILE` | Transcribe a separate recording (`.wav` / `.mp3` / `.m4a`) |
 | `--process TEXT` / `--process-file FILE` | Generate an audit spec from plain English |
-| `--spec FILE` / `--checklist FILE` | Load a YAML audit spec |
+| `--spec FILE` / `--checklist FILE` | Load a YAML audit spec from `specs/` |
+| `--specs-dir DIR` | Where specs live (default `specs/`, or `INSIGHTSCOPE_SPECS_DIR`) |
 | `--client fake\|ollama` | Scripted offline clients (default), or a local server |
 | `--text-model` / `--vision-model` / `--base-url` | Override the Ollama endpoints for a run |
 | `--record FILE` / `--replay FILE` | Save or replay a cassette of model responses |
@@ -170,27 +175,36 @@ Open <http://127.0.0.1:7860>.
 1. **Drop in a kitchen clip.** If it has sound, **Listen to video audio** is enabled. If
    it is silent, the checkbox is disabled with a "No audio track detected" note and an
    external-audio dropzone appears (`.wav` / `.mp3` / `.m4a`).
-2. **Describe the process** — "fill the kettle, boil it, spoon coffee into the mug, pour,
-   stir" — and press **Generate Spec**. The YAML lands in the *Assertions & Spec* tab,
-   where you can edit it before running. You can also drop in
-   [`tests/fixtures/checklists/make_coffee.yaml`](tests/fixtures/checklists/make_coffee.yaml)
-   directly.
+2. **Pick a spec.** The *Saved audit spec (specs/)* dropdown lists every YAML file in
+   [`specs/`](specs/) and defaults to `make_tea.yaml`. Selecting one loads it into the
+   editable YAML box; **Save Spec** writes edits back. You can also type a process
+   description and press **Generate Spec**, upload a `.yaml`, or drop in
+   [`specs/make_tea.yaml`](specs/make_tea.yaml) directly — generated and uploaded specs
+   are saved into `specs/` and appear in the dropdown.
 3. **Pick a client.** `fake` for an offline walkthrough, `cassette replay` to replay a
    recorded run, `ollama` for real inference. Toggle omissions if you want
    "moved but never mentioned" findings.
 4. **Run Audit.** The status line tracks graph stages, then the tabs fill in: keyframes
    with their `reason` badges, annotated frames per finding, assertions and the spec as
    JSON/YAML, the Markdown report with separate Process/Spec and Speech tables, and past
-   runs from `audits.db`.
+   runs from `audits.db`. Edited YAML is saved back into `specs/` on run, so the file on
+   disk is what actually executed.
 
 The UI calls the same `InputPlan` and pipeline as the CLI, so
-`insightscope audit clip.mp4 --spec coffee.yaml` produces the identical run directory.
+`insightscope audit clip.mp4 --spec make_tea.yaml` produces the identical run directory.
 One routing implementation, not two.
 
-The demo task is "make coffee": fill the kettle → boil → spoon coffee → pour water →
-stir. The audit reports things like *"you said you poured the water; the frames show the
-kettle still on its base at 00:18"*, or — when omissions are enabled — *"the mug was moved
-but never mentioned"*.
+The demo task is "make tea": put the tea bag in the mug → add boiling water → brew →
+remove the bag → add milk → stir → remove the spoon. It is chosen because the failure
+modes are easy to spot and hard to fake:
+
+- **Milk before water** — `R-STEP-002` flags the order violation from the frames.
+- **Tea bag left in** — `R-STEP-003` reports the step as never mentioned and never seen.
+- **"I stirred it" with no spoon movement** — `R-ACT-001` contradicts the spoken action
+  without needing a spec.
+
+`specs/make_coffee.yaml` is kept as a second example, and
+`tests/fixtures/checklists/make_coffee.yaml` stays untouched for automated tests.
 
 ## Repository layout
 
@@ -198,6 +212,7 @@ but never mentioned"*.
 insightscope-vla/
 ├── app.py                      # Gradio entry point (make ui)
 ├── prompts/                    # versioned prompt templates, hashed for provenance
+├── specs/                      # audit specs; make_tea.yaml is the demo
 ├── src/insightscope/
 │   ├── cli.py                  # argument parsing only; routing lives in inputs/pipeline
 │   ├── inputs.py               # InputPlan: speech source × reference source

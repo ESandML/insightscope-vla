@@ -50,7 +50,7 @@ exclusive references. `--process` and `--spec` default to silence; `--listen` or
 
 Whisper is gated in exactly one place, `pipeline.resolve_transcript`: it runs when the
 speech source is `listen` or `audio`, which by default means "no spec reference". Hybrid
-runs are reported as `hybrid (listen + spec make_coffee)`, never as a single mode.
+runs are reported as `hybrid (listen + spec make_tea)`, never as a single mode.
 
 Listen mode probes the container first. `has_audio_stream` uses PyAV (a faster-whisper
 dependency) and returns True when it cannot tell, so a silent clip fails with a clear
@@ -63,8 +63,23 @@ the same functions the CLI uses.
 
 A **process description** is plain English. An **audit spec** is the validated YAML
 (`ChecklistSpec`). Generation is a separate, inspectable step: mode 3 writes the spec to
-`artifacts/<run_id>/generated_spec.yaml`, so a human approves the model's interpretation
-before it drives an audit.
+`specs/<name>.yaml` (the canonical copy) and `artifacts/<run_id>/generated_spec.yaml`
+(the run's record), so a human approves the model's interpretation before it drives an
+audit.
+
+## Specs directory
+
+All specs live in one place. `resolve_spec_path` accepts a bare name
+(`make_tea` or `make_tea.yaml`), appends `.yaml` when needed, and confines the result to
+`specs/`; `../`, absolute paths elsewhere, and symlinks out of the directory raise
+`ChecklistError` instead of being read. `save_spec_to_dir` refuses filenames with
+directory components, so a spec is always exactly one file in the directory.
+
+Generated specs are written to `specs/<name>.yaml` as well as the run directory. The
+Gradio UI lists `specs/` in its dropdown, saves uploads and edits there, and defaults to
+`make_tea.yaml`. The fixture used by tests
+(`tests/fixtures/checklists/make_coffee.yaml`) is deliberately separate and not part of
+the user-facing store.
 
 ## Graph
 

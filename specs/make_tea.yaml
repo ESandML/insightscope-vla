@@ -1,0 +1,29 @@
+name: make_tea
+description: Brew a cup of tea at the kitchen counter.
+expected_objects:
+  - tea_bag
+  - mug
+  - kettle
+  - milk
+  - spoon
+aliases:
+  tea_bag: [teabag, tea bag]
+  mug: [cup]
+  kettle: [electric kettle]
+  milk: [milk carton, milk jug]
+  spoon: [teaspoon]
+steps:
+  - step_id: put_tea_bag_in_mug
+    description: Put the tea bag into the mug
+  - step_id: add_boiling_water
+    description: Pour boiling water into the mug
+  - step_id: stir_and_brew
+    description: Stir and let the tea brew
+  - step_id: remove_tea_bag
+    description: Take the tea bag out
+  - step_id: add_milk
+    description: Add milk
+  - step_id: stir_with_spoon
+    description: Stir the tea with the spoon
+  - step_id: remove_spoon
+    description: Take the spoon out

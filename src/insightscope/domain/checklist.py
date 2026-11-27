@@ -112,3 +112,72 @@ def dump_checklist(spec: ChecklistSpec, path: str | Path) -> Path:
         encoding="utf-8",
     )
     return destination
+
+
+def resolve_spec_path(name_or_file: str | Path, specs_dir: Path) -> Path:
+    """Resolve a user-supplied spec reference inside ``specs_dir``.
+
+    Bare names (``make_tea`` or ``make_tea.yaml``) are looked up in the directory.
+    Anything containing directories is resolved first and then confined, so ``../``
+    and absolute paths outside the directory are rejected rather than read.
+    """
+    raw = Path(name_or_file)
+    # Accept "specs/make_tea.yaml" as well as a bare name, without doubling the prefix.
+    if not raw.is_absolute() and raw.parts and raw.parts[0] == specs_dir.name:
+        raw = Path(*raw.parts[1:])
+
+    if raw.is_absolute() or raw.parent != Path("."):
+        candidate = raw if raw.is_absolute() else specs_dir / raw
+    else:
+        candidate = specs_dir / raw.name
+
+    if not candidate.suffix:
+        candidate = candidate.with_suffix(".yaml")
+
+    resolved = _confined(specs_dir, candidate)
+    if not resolved.exists():
+        raise ChecklistError(f"{resolved}: spec not found in {specs_dir}")
+    return resolved
+
+
+def list_specs(specs_dir: Path) -> list[Path]:
+    """Every YAML spec in ``specs_dir``, sorted by filename."""
+    if not specs_dir.exists():
+        return []
+    found = {
+        path
+        for pattern in ("*.yaml", "*.yml")
+        for path in specs_dir.glob(pattern)
+        if path.is_file()
+    }
+    return sorted(found, key=lambda path: path.name)
+
+
+def save_spec_to_dir(
+    spec: ChecklistSpec,
+    specs_dir: Path,
+    filename: str | None = None,
+) -> Path:
+    """Write a spec into ``specs_dir`` under a plain filename.
+
+    The name defaults to ``<spec.name>.yaml``. Directory components are refused: a
+    spec is always exactly one file inside the specs directory, never a path.
+    """
+    raw = Path(filename) if filename is not None else Path(f"{spec.name}.yaml")
+    if raw.is_absolute() or raw.parent != Path("."):
+        raise ChecklistError(
+            f"{filename}: use a plain file name inside {specs_dir}, e.g. make_tea.yaml"
+        )
+    if not raw.suffix:
+        raw = raw.with_suffix(".yaml")
+
+    destination = _confined(specs_dir, specs_dir / raw.name)
+    return dump_checklist(spec, destination)
+
+
+def _confined(specs_dir: Path, candidate: Path) -> Path:
+    base = specs_dir.resolve()
+    resolved = candidate.resolve()
+    if resolved != base and base not in resolved.parents:
+        raise ChecklistError(f"{candidate}: outside the specs directory {specs_dir}")
+    return resolved
