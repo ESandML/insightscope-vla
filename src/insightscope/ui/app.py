@@ -26,8 +26,11 @@ from insightscope.ui.service import (
 )
 from insightscope.ui.specs import (
     NEW_SPEC,
+    delete_enabled,
+    delete_spec,
     dropdown_update,
     ensure_new_filename,
+    fallback_choice,
     generate_enabled,
     initial_choice,
     initial_spec_text,
@@ -37,6 +40,7 @@ from insightscope.ui.specs import (
     save_new_spec,
     save_uploaded_spec,
     spec_choices,
+    spec_names,
     validate_spec_yaml,
     validation_message,
 )
@@ -78,10 +82,11 @@ def _editor(
     baseline: str,
     generate_on: bool | None,
     save_on: bool | None,
+    delete_on: bool | None,
     validation: str,
     status: str,
 ) -> tuple[Any, ...]:
-    """The eight outputs every spec-editing handler returns."""
+    """The nine outputs every spec-editing handler returns."""
     return (
         gr.update(value=text) if isinstance(text, str) else gr.update(),
         choice_update if choice_update is not None else gr.update(),
@@ -89,6 +94,7 @@ def _editor(
         baseline,
         gr.update(interactive=generate_on) if generate_on is not None else gr.update(),
         gr.update(interactive=save_on) if save_on is not None else gr.update(),
+        gr.update(interactive=delete_on) if delete_on is not None else gr.update(),
         validation,
         status,
     )
@@ -108,23 +114,25 @@ def on_client_change(choice: str) -> Any:
     return gr.update(visible=_client_key(choice) == "cassette")
 
 
-def on_choice(
+def _load_choice(
     choice: str,
+    root: Path,
     process_text: str,
-    specs_dir: Path | None = None,
+    *,
+    note: str | None = None,
 ) -> tuple[Any, ...]:
-    """Dropdown changed: load an existing spec, or clear the editor for a new one."""
-    root = _root(specs_dir)
+    """Load a spec (or a fresh editor) and refresh the dropdown from disk."""
     if choice == NEW_SPEC:
         return _editor(
             text="",
-            choice_update=None,
+            choice_update=dropdown_update(root, NEW_SPEC),
             filename_update=gr.update(visible=True, value=""),
             baseline="",
             generate_on=False,
             save_on=False,
+            delete_on=False,
             validation="",
-            status="New spec: enter a file name and a process description, or type YAML.",
+            status=note or "New spec: enter a file name and a process description, or type YAML.",
         )
 
     try:
@@ -132,25 +140,47 @@ def on_choice(
     except Exception as exc:
         return _editor(
             text=None,
-            choice_update=None,
-            filename_update=gr.update(visible=False),
+            choice_update=dropdown_update(root, NEW_SPEC),
+            filename_update=gr.update(visible=True, value=""),
             baseline="",
             generate_on=False,
             save_on=False,
+            delete_on=False,
             validation="",
             status=f"**error:** {exc}",
         )
 
     return _editor(
         text=text,
-        choice_update=None,
+        choice_update=dropdown_update(root, choice),
         filename_update=gr.update(visible=False, value=""),
         baseline=text,
         generate_on=generate_enabled(choice, "", process_text),
         save_on=False,
+        delete_on=delete_enabled(choice),
         validation="",
-        status=f"Loaded `{choice}`. Save enables when the YAML is valid and changed.",
+        status=note or f"Loaded `{choice}`. Save enables when the YAML is valid and changed.",
     )
+
+
+def on_choice(
+    choice: str,
+    process_text: str,
+    specs_dir: Path | None = None,
+) -> tuple[Any, ...]:
+    """Dropdown changed: re-read the directory, then load or fall back cleanly."""
+    root = _root(specs_dir)
+
+    if choice != NEW_SPEC and choice not in spec_names(root):
+        fallback = fallback_choice(root)
+        return _load_choice(
+            fallback,
+            root,
+            process_text,
+            note=f"`{choice}` is no longer on disk; removed it from the list.",
+        )
+
+    return _load_choice(choice, root, process_text)
 
 
 def on_new_filename(
@@ -200,6 +230,7 @@ def on_generate(
             baseline=baseline,
             generate_on=False,
             save_on=None,
+            delete_on=None,
             validation="",
             status="Enter a process description first.",
         )
@@ -233,6 +264,7 @@ def on_generate(
             baseline=baseline,
             generate_on=None,
             save_on=None,
+            delete_on=None,
             validation="",
             status=f"**error:** {exc}",
         )
@@ -245,6 +277,7 @@ def on_generate(
             baseline=saved.text,
             generate_on=False,
             save_on=False,
+            delete_on=True,
             validation="",
             status=f"Spec saved to `{saved.path}`.{warning}",
         )
@@ -256,6 +289,7 @@ def on_generate(
         baseline=baseline,
         generate_on=generate_enabled(choice, filename, process_text),
         save_on=save_enabled(choice, text, baseline, filename),
+        delete_on=True,
         validation=validation_message(text),
         status=(
             f"Regenerated from the description. Review and **Save Spec** to update "
@@ -285,6 +319,7 @@ def on_save(
             baseline=baseline,
             generate_on=None,
             save_on=None,
+            delete_on=None,
             validation=validation_message(spec_text),
             status=f"**error:** {exc}",
         )
@@ -296,6 +331,7 @@ def on_save(
         baseline=saved.text,
         generate_on=False,
         save_on=False,
+        delete_on=True,
         validation="",
         status=f"Saved to `{saved.path}`.",
     )
@@ -316,6 +352,7 @@ def on_spec_upload(
             baseline=baseline,
             generate_on=None,
             save_on=None,
+            delete_on=None,
             validation="",
             status="",
         )
@@ -330,6 +367,7 @@ def on_spec_upload(
             baseline=baseline,
             generate_on=None,
             save_on=None,
+            delete_on=None,
             validation="",
             status=f"**error:** {exc}",
         )
@@ -341,9 +379,42 @@ def on_spec_upload(
         baseline=saved.text,
         generate_on=False,
         save_on=False,
+        delete_on=True,
         validation="",
         status=f"Saved to `{saved.path}`.",
     )
+
+
+def on_delete(
+    choice: str,
+    process_text: str,
+    baseline: str,
+    specs_dir: Path | None = None,
+) -> tuple[Any, ...]:
+    """Delete the selected spec and load whatever remains."""
+    root = _root(specs_dir)
+    try:
+        delete_spec(choice, root)
+    except Exception as exc:
+        return _editor(
+            text=None,
+            choice_update=dropdown_update(root, choice),
+            filename_update=None,
+            baseline=baseline,
+            generate_on=None,
+            save_on=None,
+            delete_on=None,
+            validation="",
+            status=f"**error:** {exc}",
+        )
+
+    fallback = fallback_choice(root)
+    note = f"Deleted `{choice}`."
+    if fallback == NEW_SPEC:
+        note += " No specs left; create a new one."
+    else:
+        note += f" Selected `{fallback}`."
+    return _load_choice(fallback, root, process_text, note=note)
 
 
 def on_load_history() -> list[list[object]]:
@@ -478,6 +549,7 @@ def _run_error(
         baseline,
         gr.update(),
         gr.update(),
+        gr.update(),
         validation_message(spec_text),
     )
 
@@ -502,6 +574,7 @@ def _run_success(
         result.spec_yaml or spec_text,
         gr.update(interactive=False),
         gr.update(interactive=False),
+        gr.update(interactive=delete_enabled(selected_name)),
         "",
     )
 
@@ -556,6 +629,10 @@ def build_ui() -> gr.Blocks:
                 validation = gr.Markdown("")
                 with gr.Row():
                     save_spec = gr.Button("Save Spec", interactive=False)
+                    delete_spec = gr.Button(
+                        "Delete Spec",
+                        interactive=delete_enabled(selected),
+                    )
                     generate = gr.Button("Generate Spec", interactive=False)
                 spec_upload = gr.File(
                     label="Upload audit spec (.yaml)",
@@ -620,6 +697,7 @@ def build_ui() -> gr.Blocks:
             baseline,
             generate,
             save_spec,
+            delete_spec,
             validation,
             status,
         ]
@@ -661,6 +739,11 @@ def build_ui() -> gr.Blocks:
             [spec_text, spec_choice, baseline, new_filename],
             editor_outputs,
         )
+        delete_spec.click(
+            on_delete,
+            [spec_choice, process_text, baseline],
+            editor_outputs,
+        )
         spec_upload.change(
             on_spec_upload,
             [spec_upload, baseline],
@@ -695,6 +778,7 @@ def build_ui() -> gr.Blocks:
                 baseline,
                 generate,
                 save_spec,
+                delete_spec,
                 validation,
             ],
             show_progress="full",

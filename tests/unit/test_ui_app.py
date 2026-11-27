@@ -59,6 +59,7 @@ def test_initial_yaml_is_preloaded_and_save_is_disabled() -> None:
     assert "name: make_tea" in block(demo, gr.Textbox, "Audit spec (editable YAML)").value
     assert block(demo, gr.Button, "Save Spec").interactive is False
     assert block(demo, gr.Button, "Generate Spec").interactive is False
+    assert block(demo, gr.Button, "Delete Spec").interactive is True
 
 
 def test_video_change_explains_a_silent_clip(
@@ -80,7 +81,7 @@ def test_existing_spec_loads_and_requires_a_change_to_save(tmp_path: Path) -> No
     specs = copy_tea(tmp_path)
 
     outputs = ui_app.on_choice("make_tea.yaml", "", specs_dir=specs)
-    text, _choice, filename, baseline, generate, save, validation, status = outputs
+    text, _choice, filename, baseline, generate, save, _delete, validation, status = outputs
 
     assert text["value"].startswith("name: make_tea")
     assert filename["visible"] is False
@@ -128,7 +129,7 @@ def test_generate_regenerates_the_selected_spec_without_writing(
     outputs = ui_app.on_generate(
         "brew a pot of tea", "fake", None, "make_tea.yaml", "", baseline, specs_dir=specs
     )
-    text, _choice, _filename, new_baseline, generate, save, validation, status = outputs
+    text, _choice, _filename, new_baseline, generate, save, _delete, validation, status = outputs
 
     assert "Regenerated" in status
     assert "name: make_coffee" in text["value"]  # fake client fixture
@@ -152,14 +153,14 @@ def test_generate_needs_a_process_description(tmp_path: Path) -> None:
     )
 
     assert outputs[4]["interactive"] is False
-    assert "process description" in outputs[7]
+    assert "process description" in outputs[8]
 
 
 def test_new_spec_clears_editor_and_requires_name_and_process(tmp_path: Path) -> None:
     specs = copy_tea(tmp_path)
 
     outputs = ui_app.on_choice(NEW_SPEC, "", specs_dir=specs)
-    text, _choice, filename, baseline, generate, save, validation, status = outputs
+    text, _choice, filename, baseline, generate, save, _delete, validation, status = outputs
 
     assert text["value"] == ""
     assert filename["visible"] is True
@@ -189,7 +190,7 @@ def test_duplicate_filename_is_rejected_without_overwriting(tmp_path: Path) -> N
         "brew tea", "fake", None, NEW_SPEC, "make_tea.yaml", "", specs_dir=specs
     )
 
-    assert "already exists" in outputs[7]
+    assert "already exists" in outputs[8]
     assert (specs / "make_tea.yaml").read_text(encoding="utf-8") == before
 
 
@@ -199,7 +200,7 @@ def test_duplicate_filename_is_rejected_on_save(tmp_path: Path) -> None:
 
     outputs = ui_app.on_save(text, NEW_SPEC, "", "make_tea.yaml", specs_dir=specs)
 
-    assert "already exists" in outputs[7]
+    assert "already exists" in outputs[8]
 
 
 def test_existing_save_preserves_the_edited_name(tmp_path: Path) -> None:
@@ -213,7 +214,7 @@ def test_existing_save_preserves_the_edited_name(tmp_path: Path) -> None:
     outputs = ui_app.on_save(text, "make_tea.yaml", text, "", specs_dir=specs)
 
     assert outputs[5]["interactive"] is False
-    assert "Saved" in outputs[7]
+    assert "Saved" in outputs[8]
     assert spec_names(specs) == ["make_tea.yaml"]
     assert "name: custom_tea" in (specs / "make_tea.yaml").read_text(encoding="utf-8")
 
@@ -225,10 +226,10 @@ def test_upload_saves_and_rejects_duplicates(tmp_path: Path) -> None:
     assert (specs / "make_coffee.yaml").exists()
     assert outputs[1]["value"] == "make_coffee.yaml"
     assert outputs[2]["visible"] is False
-    assert "Saved" in outputs[7]
+    assert "Saved" in outputs[8]
 
     duplicate = ui_app.on_spec_upload(str(CHECKLIST), "", specs_dir=specs)
-    assert "already exists" in duplicate[7]
+    assert "already exists" in duplicate[8]
 
 
 def test_generate_with_fake_client_warns(tmp_path: Path) -> None:
@@ -238,8 +239,8 @@ def test_generate_with_fake_client_warns(tmp_path: Path) -> None:
         "brew a cup of tea", "fake", None, NEW_SPEC, "brew_tea.yaml", "", specs_dir=specs
     )
 
-    assert "fake" in outputs[7].lower()
-    assert "coffee" in outputs[7].lower()
+    assert "fake" in outputs[8].lower()
+    assert "coffee" in outputs[8].lower()
     assert (specs / "brew_tea.yaml").exists()
     assert outputs[1]["value"] == "brew_tea.yaml"
     assert outputs[2]["visible"] is False
@@ -270,7 +271,7 @@ def test_run_handler_produces_report_and_history(tmp_path: Path) -> None:
         progress=NoopProgress(),
     )
 
-    assert len(outputs) == 13
+    assert len(outputs) == 14
     status, keyframes, flagged, assertions, spec_text, report, history, dropdown = outputs[:8]
     assert "complete" in status
     assert keyframes
@@ -284,3 +285,56 @@ def test_run_handler_produces_report_and_history(tmp_path: Path) -> None:
     assert "Findings" in report
     assert history
     assert outputs[11]["interactive"] is False  # save disabled after run
+    assert outputs[12]["interactive"] is True  # the saved spec can be deleted
+
+
+def test_stale_spec_falls_back_to_what_is_on_disk(tmp_path: Path) -> None:
+    specs = copy_tea(tmp_path)
+    (specs / "make_coffee.yaml").write_text(CHECKLIST.read_text(encoding="utf-8"), encoding="utf-8")
+    (specs / "make_tea.yaml").unlink()
+
+    outputs = ui_app.on_choice("make_tea.yaml", "", specs_dir=specs)
+    text, choice, filename, baseline, _generate, save, _delete, validation, status = outputs
+
+    assert "no longer on disk" in status
+    assert "name: make_coffee" in text["value"]
+    assert choice["value"] == "make_coffee.yaml"
+    assert filename["visible"] is False
+    assert baseline == text["value"]
+    assert validation == ""
+    assert save["interactive"] is False
+    assert _delete["interactive"] is True
+
+
+def test_delete_removes_the_file_and_selects_the_fallback(tmp_path: Path) -> None:
+    specs = copy_tea(tmp_path)
+    (specs / "make_coffee.yaml").write_text(CHECKLIST.read_text(encoding="utf-8"), encoding="utf-8")
+    loaded = ui_app.on_choice("make_tea.yaml", "", specs_dir=specs)
+
+    outputs = ui_app.on_delete("make_tea.yaml", "", loaded[3], specs_dir=specs)
+    text, choice, filename, baseline, _generate, _save, _delete, validation, status = outputs
+
+    assert not (specs / "make_tea.yaml").exists()
+    assert "Deleted" in status
+    assert choice["value"] == "make_coffee.yaml"
+    assert "name: make_coffee" in text["value"]
+    assert baseline == text["value"]
+    assert filename["visible"] is False
+    assert validation == ""
+    assert _delete["interactive"] is True
+
+
+def test_deleting_the_last_spec_switches_to_new_mode(tmp_path: Path) -> None:
+    specs = copy_tea(tmp_path)
+    loaded = ui_app.on_choice("make_tea.yaml", "", specs_dir=specs)
+
+    outputs = ui_app.on_delete("make_tea.yaml", "", loaded[3], specs_dir=specs)
+    text, choice, filename, baseline, _generate, _save, _delete, _validation, status = outputs
+
+    assert not (specs / "make_tea.yaml").exists()
+    assert "No specs left" in status
+    assert text["value"] == ""
+    assert choice["value"] == NEW_SPEC
+    assert filename["visible"] is True
+    assert baseline == ""
+    assert _delete["interactive"] is False

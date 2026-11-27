@@ -113,6 +113,34 @@ def spec_exists(filename: str, specs_dir: Path) -> bool:
         return False
 
 
+def fallback_choice(specs_dir: Path) -> str:
+    """The spec to select when the current one disappears."""
+    names = spec_names(specs_dir)
+    if "make_tea.yaml" in names:
+        return "make_tea.yaml"
+    return names[0] if names else NEW_SPEC
+
+
+def delete_enabled(choice: str) -> bool:
+    return bool(choice.strip()) and choice != NEW_SPEC
+
+
+def delete_spec(filename: str, specs_dir: Path) -> None:
+    """Delete one spec from ``specs_dir``; refuse anything that is not a plain file."""
+    if filename == NEW_SPEC:
+        raise ChecklistError(f"cannot delete {NEW_SPEC!r}")
+    target = normalise_filename(filename)
+
+    base = specs_dir.resolve()
+    resolved = (specs_dir / target).resolve()
+    if resolved != base and base not in resolved.parents:
+        raise ChecklistError(f"{filename}: outside the specs directory {specs_dir}")
+    if not resolved.exists():
+        raise ChecklistError(f"{target}: no such spec in {specs_dir}")
+
+    resolved.unlink()
+
+
 def ensure_new_filename(filename: str, specs_dir: Path) -> str:
     """Validate a new filename and refuse an existing one before doing any work."""
     target = normalise_filename(filename)
