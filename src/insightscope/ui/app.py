@@ -1,9 +1,9 @@
 """Gradio UI wiring.
 
 Every decision of substance lives elsewhere: ``ui.state`` decides what the audio
-controls show, ``ui.service`` runs an audit through the shared pipeline, and
-``inputs.plan_for`` builds the routing plan. This file only moves values between
-Gradio components and those functions.
+controls show, ``ui.specs`` owns spec browsing and persistence, ``ui.service`` runs an
+audit through the shared pipeline, and ``inputs.plan_for`` builds the routing plan. This
+file only moves values between Gradio components and those functions.
 """
 
 from __future__ import annotations
@@ -12,10 +12,10 @@ from pathlib import Path
 from typing import Any, cast
 
 import gradio as gr
-import yaml
 
 from insightscope.actions.db import history
-from insightscope.domain.checklist import ChecklistSpec, load_checklist
+from insightscope.config import Settings
+from insightscope.domain.checklist import save_spec_to_dir
 from insightscope.inputs import plan_for
 from insightscope.ui.service import (
     HISTORY_COLUMNS,
@@ -23,6 +23,14 @@ from insightscope.ui.service import (
     UiRunResult,
     generate_spec_text,
     run_ui_audit,
+)
+from insightscope.ui.specs import (
+    default_spec_name,
+    dropdown_update,
+    parse_spec_text,
+    read_spec_text,
+    save_spec_text,
+    spec_names,
 )
 from insightscope.ui.state import audio_state
 
@@ -44,11 +52,8 @@ def _client_key(choice: str) -> str:
     return "cassette" if choice == "cassette replay" else choice
 
 
-def _parse_spec_text(text: str) -> ChecklistSpec:
-    raw = yaml.safe_load(text)
-    if not isinstance(raw, dict):
-        raise ValueError("audit spec must be a YAML mapping")
-    return ChecklistSpec.model_validate(raw)
+def _root(specs_dir: Path | None) -> Path:
+    return Path(specs_dir) if specs_dir is not None else Settings().specs_dir
 
 
 def _history_value(rows: tuple[tuple[object, ...], ...]) -> list[list[object]]:
@@ -69,27 +74,64 @@ def on_client_change(choice: str) -> Any:
     return gr.update(visible=_client_key(choice) == "cassette")
 
 
-def on_spec_upload(file: Any) -> Any:
+def on_spec_upload(file: Any, specs_dir: Path | None = None) -> tuple[Any, Any, str]:
+    root = _root(specs_dir)
     path = _as_path(file)
     if path is None:
-        return gr.update()
-    return path.read_text(encoding="utf-8")
+        return gr.update(), dropdown_update(root), ""
+
+    try:
+        text = path.read_text(encoding="utf-8")
+        spec = parse_spec_text(text)
+        saved = save_spec_to_dir(spec, root)
+    except Exception as exc:
+        return gr.update(), dropdown_update(root), f"**error:** {exc}"
+
+    return text, dropdown_update(root, saved.name), f"Saved to `{saved}`."
+
+
+def on_select_spec(name: str | None, specs_dir: Path | None = None) -> tuple[Any, str]:
+    root = _root(specs_dir)
+    if not name:
+        return gr.update(), "Select a saved spec."
+    try:
+        return read_spec_text(name, root), f"Loaded `{name}`."
+    except Exception as exc:
+        return gr.update(), f"**error:** {exc}"
+
+
+def on_save_spec(spec_text: str, specs_dir: Path | None = None) -> tuple[Any, str]:
+    root = _root(specs_dir)
+    try:
+        saved = save_spec_text(spec_text, root)
+    except Exception as exc:
+        return dropdown_update(root), f"**error:** {exc}"
+    return dropdown_update(root, saved.name), f"Saved to `{saved}`."
 
 
 def on_generate(
     process_text: str,
     client: str,
     cassette: Any,
-) -> tuple[Any, str]:
+    specs_dir: Path | None = None,
+) -> tuple[Any, Any, str]:
+    root = _root(specs_dir)
     try:
         text = generate_spec_text(
             process_text,
             client=_client_key(client),
             cassette_path=_as_path(cassette),
         )
+        spec = parse_spec_text(text)
+        saved = save_spec_to_dir(spec, root)
     except Exception as exc:
-        return gr.update(), f"**error:** {exc}"
-    return text, "Spec generated. Review or edit it, then **Run Audit**."
+        return gr.update(), dropdown_update(root), f"**error:** {exc}"
+
+    return (
+        text,
+        dropdown_update(root, saved.name),
+        f"Spec saved to `{saved}`. Review it, then **Run Audit**.",
+    )
 
 
 def on_load_history() -> list[list[object]]:
@@ -111,21 +153,30 @@ def on_run(
     client: str,
     cassette: Any,
     flag_omissions: bool,
+    specs_dir: Path | None = None,
+    artifacts_dir: Path | None = None,
+    db_path: Path | None = None,
     progress: gr.Progress = gr.Progress(),  # noqa: B008 - Gradio's injection pattern
 ) -> tuple[Any, ...]:
+    root = _root(specs_dir)
     clip = _as_path(video)
     if clip is None:
-        return _error_outputs("Upload a video first.", spec_text)
+        return _error_outputs("Upload a video first.", spec_text, root)
 
     audio_path = _as_path(audio_file)
     upload = _as_path(spec_upload)
 
     try:
         if upload is not None:
-            spec = load_checklist(upload)
+            uploaded_text = upload.read_text(encoding="utf-8")
+            spec = parse_spec_text(uploaded_text)
+            save_spec_to_dir(spec, root)
+            spec_text = uploaded_text
             reference, generated = "spec", False
         elif spec_text.strip():
-            spec = _parse_spec_text(spec_text)
+            spec = parse_spec_text(spec_text)
+            # Persist edits before running, so the file on disk is what ran.
+            save_spec_to_dir(spec, root)
             reference, generated = "spec", False
         elif process_text.strip():
             generated_text = generate_spec_text(
@@ -133,7 +184,8 @@ def on_run(
                 client=_client_key(client),
                 cassette_path=_as_path(cassette),
             )
-            spec = _parse_spec_text(generated_text)
+            spec = parse_spec_text(generated_text)
+            save_spec_to_dir(spec, root)
             spec_text = generated_text
             reference, generated = "process", True
         else:
@@ -143,6 +195,7 @@ def on_run(
             return _error_outputs(
                 "Choose a reference (process/spec) or enable a speech source.",
                 spec_text,
+                root,
             )
 
         plan = plan_for(
@@ -161,15 +214,18 @@ def on_run(
                 flag_omissions=bool(flag_omissions),
                 client=_client_key(client),
                 cassette_path=_as_path(cassette),
+                specs_dir=root,
+                artifacts_dir=artifacts_dir or Path("artifacts"),
+                db_path=db_path or Path("audits.db"),
             ),
             on_stage=_stage_callback(progress),
         )
     except Exception as exc:
-        return _error_outputs(f"{type(exc).__name__}: {exc}", spec_text)
+        return _error_outputs(f"{type(exc).__name__}: {exc}", spec_text, root)
 
     if result.error is not None:
-        return _error_outputs(result.error, spec_text)
-    return _success_outputs(result, spec_text)
+        return _error_outputs(result.error, spec_text, root)
+    return _success_outputs(result, spec_text, root)
 
 
 def _stage_callback(progress: gr.Progress) -> Any:
@@ -182,7 +238,7 @@ def _stage_callback(progress: gr.Progress) -> Any:
     return on_stage
 
 
-def _error_outputs(message: str, spec_text: str = "") -> tuple[Any, ...]:
+def _error_outputs(message: str, spec_text: str, specs_dir: Path) -> tuple[Any, ...]:
     return (
         f"**error**\n\n{message}",
         [],
@@ -191,10 +247,11 @@ def _error_outputs(message: str, spec_text: str = "") -> tuple[Any, ...]:
         spec_text,
         "",
         _history_value(()),
+        dropdown_update(specs_dir),
     )
 
 
-def _success_outputs(result: UiRunResult, fallback_spec: str) -> tuple[Any, ...]:
+def _success_outputs(result: UiRunResult, fallback_spec: str, specs_dir: Path) -> tuple[Any, ...]:
     status = f"**{result.status}** · run `{result.run_id}` · {len(result.keyframes)} keyframes"
     return (
         status,
@@ -204,10 +261,15 @@ def _success_outputs(result: UiRunResult, fallback_spec: str) -> tuple[Any, ...]
         result.spec_yaml or fallback_spec,
         result.report_markdown,
         _history_value(result.history),
+        dropdown_update(specs_dir, result.spec_name or None),
     )
 
 
 def build_ui() -> gr.Blocks:
+    specs_dir = Settings().specs_dir
+    choices = spec_names(specs_dir)
+    selected = default_spec_name(specs_dir)
+
     with gr.Blocks(title="InsightScope-VLA") as demo:
         gr.Markdown(
             "# InsightScope-VLA\n"
@@ -230,17 +292,24 @@ def build_ui() -> gr.Blocks:
                     type="filepath",
                     visible=False,
                 )
-                process_text = gr.Textbox(
-                    label="Process description",
-                    lines=3,
-                    placeholder="fill the kettle, boil it, pour water into the mug",
+                spec_choice = gr.Dropdown(
+                    label="Saved audit spec (specs/)",
+                    choices=choices,
+                    value=selected,
                 )
-                generate = gr.Button("Generate Spec")
                 spec_upload = gr.File(
-                    label="Audit spec (.yaml)",
+                    label="Upload audit spec (.yaml)",
                     file_types=[".yaml", ".yml"],
                     type="filepath",
                 )
+                process_text = gr.Textbox(
+                    label="Process description",
+                    lines=3,
+                    placeholder="fill the kettle, add a tea bag, pour water, add milk",
+                )
+                with gr.Row():
+                    generate = gr.Button("Generate Spec")
+                    save_spec = gr.Button("Save Spec")
                 with gr.Accordion("Run settings", open=False):
                     client = gr.Radio(
                         CLIENT_CHOICES,
@@ -302,8 +371,18 @@ def build_ui() -> gr.Blocks:
             [listen, audio_file, source_status],
         )
         client.change(on_client_change, [client], [cassette])
-        generate.click(on_generate, [process_text, client, cassette], [spec_text, status])
-        spec_upload.change(on_spec_upload, [spec_upload], [spec_text])
+        spec_choice.change(on_select_spec, [spec_choice], [spec_text, status])
+        spec_upload.change(
+            on_spec_upload,
+            [spec_upload],
+            [spec_text, spec_choice, status],
+        )
+        generate.click(
+            on_generate,
+            [process_text, client, cassette],
+            [spec_text, spec_choice, status],
+        )
+        save_spec.click(on_save_spec, [spec_text], [spec_choice, status])
         run.click(
             on_run,
             [
@@ -317,7 +396,16 @@ def build_ui() -> gr.Blocks:
                 cassette,
                 omissions,
             ],
-            [status, keyframes, flagged, assertions, spec_text, report, history_df],
+            [
+                status,
+                keyframes,
+                flagged,
+                assertions,
+                spec_text,
+                report,
+                history_df,
+                spec_choice,
+            ],
             show_progress="full",
         )
         demo.load(on_load_history, None, [history_df])

@@ -44,6 +44,7 @@ class UiRequest:
     client: str = "fake"
     cassette_path: Path | None = None
     whisper_model: str = "small.en"
+    specs_dir: Path = Path("specs")
     text_model: str | None = None
     vision_model: str | None = None
     base_url: str | None = None
@@ -58,6 +59,7 @@ class UiRunResult:
     flagged: tuple[str, ...] = ()
     assertions_json: str = ""
     spec_yaml: str = ""
+    spec_name: str = ""
     history: tuple[tuple[object, ...], ...] = ()
     error: str | None = None
 
@@ -95,6 +97,7 @@ def run_ui_audit(
             flag_omissions=request.flag_omissions,
             artifacts_dir=request.artifacts_dir,
             db_path=request.db_path,
+            specs_dir=request.specs_dir,
             models=_model_choice(request),
         )
         prepared = prepare_run(
@@ -142,6 +145,7 @@ def run_ui_audit(
         flagged=flagged,
         assertions_json=json.dumps(assertions, indent=2),
         spec_yaml=spec_yaml(config.checklist) if config.checklist is not None else "",
+        spec_name=f"{config.checklist.name}.yaml" if config.checklist is not None else "",
         history=_history_rows(request.db_path),
     )
 

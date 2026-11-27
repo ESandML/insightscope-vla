@@ -27,6 +27,14 @@ def transcript_json(path: Path, text: str = "I closed the laptop") -> Path:
     return path
 
 
+def install_spec(tmp_path: Path, source: Path = CHECKLIST) -> str:
+    """Copy a fixture spec into the run's specs directory and return its name."""
+    target = tmp_path / "specs" / source.name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    return target.name
+
+
 def test_keyframes_command_lists_selection(tmp_path: Path, capsys: object) -> None:
     clip = write_test_video(tmp_path / "clip.avi")
     out = tmp_path / "frames"
@@ -135,30 +143,24 @@ def test_txt_transcript_is_reported_as_degraded(tmp_path: Path) -> None:
 
 
 def test_spec_mode_enables_step_rules(tmp_path: Path, capsys: object) -> None:
-    clip = write_test_video(tmp_path / "clip.avi")
+    write_test_video(tmp_path / "clip.avi")
     transcript = transcript_json(tmp_path / "t.json")
-    artifacts = tmp_path / "artifacts"
 
     code = main(
-        [
-            "audit",
-            str(clip),
+        audit_args(
+            tmp_path,
             "--transcript",
             str(transcript),
             "--checklist",
-            str(CHECKLIST),
-            "--artifacts-dir",
-            str(artifacts),
-            "--db",
-            str(tmp_path / "audits.db"),
-        ]
+            install_spec(tmp_path),
+        )
     )
 
     captured = capsys.readouterr()  # type: ignore[attr-defined]
     assert code == 0
     assert "spec make_coffee" in captured.out
 
-    report = next(artifacts.glob("*/report.md")).read_text(encoding="utf-8")
+    report = next((tmp_path / "artifacts").glob("*/report.md")).read_text(encoding="utf-8")
     assert "R-STEP-003" in report
 
 
@@ -182,7 +184,7 @@ def test_unsupported_transcript_returns_two(tmp_path: Path, capsys: object) -> N
 
 
 def test_spec_new_writes_reviewable_yaml(tmp_path: Path, capsys: object) -> None:
-    output = tmp_path / "coffee.yaml"
+    specs = tmp_path / "specs"
 
     code = main(
         [
@@ -190,7 +192,9 @@ def test_spec_new_writes_reviewable_yaml(tmp_path: Path, capsys: object) -> None
             "new",
             "fill the kettle and pour water into the mug",
             "-o",
-            str(output),
+            "coffee.yaml",
+            "--specs-dir",
+            str(specs),
             "--client",
             "fake",
         ]
@@ -198,6 +202,7 @@ def test_spec_new_writes_reviewable_yaml(tmp_path: Path, capsys: object) -> None
 
     captured = capsys.readouterr()  # type: ignore[attr-defined]
     assert code == 0
+    output = specs / "coffee.yaml"
     assert output.exists()
 
     text = output.read_text(encoding="utf-8")
@@ -206,8 +211,28 @@ def test_spec_new_writes_reviewable_yaml(tmp_path: Path, capsys: object) -> None
     assert "review and edit" in captured.out
 
 
+def test_spec_new_rejects_paths_outside_specs(tmp_path: Path, capsys: object) -> None:
+    code = main(
+        [
+            "spec",
+            "new",
+            "fill the kettle",
+            "-o",
+            "../escape.yaml",
+            "--specs-dir",
+            str(tmp_path / "specs"),
+            "--client",
+            "fake",
+        ]
+    )
+
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert code == 2
+    assert "plain file name" in captured.err
+
+
 def test_checklist_new_remains_an_alias(tmp_path: Path) -> None:
-    output = tmp_path / "coffee.yaml"
+    specs = tmp_path / "specs"
 
     code = main(
         [
@@ -215,14 +240,16 @@ def test_checklist_new_remains_an_alias(tmp_path: Path) -> None:
             "new",
             "fill the kettle",
             "-o",
-            str(output),
+            "coffee.yaml",
+            "--specs-dir",
+            str(specs),
             "--client",
             "fake",
         ]
     )
 
     assert code == 0
-    assert output.exists()
+    assert (specs / "coffee.yaml").exists()
 
 
 def test_audit_can_record_and_replay_a_cassette(tmp_path: Path, capsys: object) -> None:
@@ -287,6 +314,8 @@ def audit_args(tmp_path: Path, *extra: str) -> list[str]:
         str(tmp_path / "artifacts"),
         "--db",
         str(tmp_path / "audits.db"),
+        "--specs-dir",
+        str(tmp_path / "specs"),
         *extra,
     ]
 
@@ -310,7 +339,7 @@ def test_spec_mode_skips_whisper(
     write_test_video(tmp_path / "clip.avi")
     forbid_whisper(monkeypatch)
 
-    code = main(audit_args(tmp_path, "--spec", str(CHECKLIST)))
+    code = main(audit_args(tmp_path, "--spec", install_spec(tmp_path)))
 
     captured = capsys.readouterr()  # type: ignore[attr-defined]
     assert code == 0
@@ -332,6 +361,10 @@ def test_process_mode_generates_a_spec_and_skips_whisper(
     generated = list((tmp_path / "artifacts").glob("*/generated_spec.yaml"))
     assert len(generated) == 1
     assert "make_coffee" in generated[0].read_text(encoding="utf-8")
+
+    saved = tmp_path / "specs" / "make_coffee.yaml"
+    assert saved.exists()
+    assert "spec file:" in captured.out
 
 
 def test_process_file_mode_is_accepted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -389,9 +422,21 @@ def test_reference_sources_are_mutually_exclusive(tmp_path: Path) -> None:
                 "--process",
                 "fill the kettle",
                 "--spec",
-                str(CHECKLIST),
+                install_spec(tmp_path),
             )
         )
+
+
+def test_audit_rejects_a_spec_outside_the_specs_dir(tmp_path: Path, capsys: object) -> None:
+    write_test_video(tmp_path / "clip.avi")
+    outside = tmp_path / "outside.yaml"
+    outside.write_text(CHECKLIST.read_text(encoding="utf-8"), encoding="utf-8")
+
+    code = main(audit_args(tmp_path, "--spec", str(outside)))
+
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert code == 2
+    assert "outside the specs directory" in captured.err
 
 
 def test_transcript_can_accompany_a_spec(
@@ -406,7 +451,7 @@ def test_transcript_can_accompany_a_spec(
             "--transcript",
             str(transcript_json(tmp_path / "t.json")),
             "--spec",
-            str(CHECKLIST),
+            install_spec(tmp_path),
         )
     )
 
@@ -445,7 +490,7 @@ def test_listen_with_spec_is_a_hybrid_run(
     write_test_video(tmp_path / "clip.avi")
     calls = whisper_returning(monkeypatch)
 
-    code = main(audit_args(tmp_path, "--listen", "--spec", str(CHECKLIST)))
+    code = main(audit_args(tmp_path, "--listen", "--spec", install_spec(tmp_path)))
 
     captured = capsys.readouterr()  # type: ignore[attr-defined]
     assert code == 0
@@ -478,7 +523,7 @@ def test_spec_only_run_is_reported_as_spec(
     write_test_video(tmp_path / "clip.avi")
     forbid_whisper(monkeypatch)
 
-    code = main(audit_args(tmp_path, "--spec", str(CHECKLIST)))
+    code = main(audit_args(tmp_path, "--spec", install_spec(tmp_path)))
 
     captured = capsys.readouterr()  # type: ignore[attr-defined]
     assert code == 0
@@ -514,7 +559,7 @@ def test_open_ended_report_keeps_a_single_table(tmp_path: Path) -> None:
 def test_spec_report_splits_findings(tmp_path: Path) -> None:
     write_test_video(tmp_path / "clip.avi")
 
-    code = main(audit_args(tmp_path, "--spec", str(CHECKLIST)))
+    code = main(audit_args(tmp_path, "--spec", install_spec(tmp_path)))
 
     assert code == 0
     report = next((tmp_path / "artifacts").glob("*/report.md")).read_text(encoding="utf-8")
@@ -562,7 +607,7 @@ def test_audio_with_spec_is_a_hybrid_run(
     voice.write_bytes(b"RIFF")
     whisper_returning(monkeypatch)
 
-    code = main(audit_args(tmp_path, "--audio", str(voice), "--spec", str(CHECKLIST)))
+    code = main(audit_args(tmp_path, "--audio", str(voice), "--spec", install_spec(tmp_path)))
 
     captured = capsys.readouterr()  # type: ignore[attr-defined]
     assert code == 0
@@ -627,7 +672,9 @@ def test_cli_verifies_spoken_actions_in_a_hybrid_run(
     triple = ClientTriple(text=fake_text, vision=ActionVision(), generator=fake_text)
     monkeypatch.setattr("insightscope.cli.build_clients", lambda **kwargs: triple)
 
-    code = main(audit_args(tmp_path, "--transcript", str(transcript), "--spec", str(CHECKLIST)))
+    code = main(
+        audit_args(tmp_path, "--transcript", str(transcript), "--spec", install_spec(tmp_path))
+    )
 
     assert code == 0
     report = next((tmp_path / "artifacts").glob("*/report.md")).read_text(encoding="utf-8")
