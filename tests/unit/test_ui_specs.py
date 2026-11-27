@@ -76,7 +76,11 @@ def test_generate_needs_filename_and_process() -> None:
     assert generate_enabled(NEW_SPEC, "", "brew tea") is False
     assert generate_enabled(NEW_SPEC, "brew_tea.yaml", "") is False
     assert generate_enabled(NEW_SPEC, "brew_tea.yaml", "brew tea") is True
-    assert generate_enabled("make_tea.yaml", "brew_tea.yaml", "brew tea") is False
+
+
+def test_generate_is_available_for_the_selected_spec() -> None:
+    assert generate_enabled("make_tea.yaml", "", "brew tea") is True
+    assert generate_enabled("make_tea.yaml", "", "") is False
 
 
 def test_save_new_spec_refuses_duplicates(tmp_path: Path) -> None:

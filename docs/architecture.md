@@ -80,7 +80,9 @@ Gradio UI lists `specs/` with a leading `+ New spec`, preloads the selected spec
 (default `make_tea.yaml`) into an editor on the left, and validates YAML live. **Save
 Spec** enables only when the text is valid and differs from the loaded file; new specs
 require an explicit filename, and existing filenames are refused rather than overwritten.
-The UI defaults to the `ollama` client for live runs. The fixture used by tests
+**Generate Spec** works in both modes: with an existing spec it stages regenerated YAML in
+the editor without writing, and for `+ New spec` it writes the new file. The UI defaults
+to the `ollama` client for live runs. The fixture used by tests
 (`tests/fixtures/checklists/make_coffee.yaml`) is deliberately separate and not part of
 the user-facing store.
 

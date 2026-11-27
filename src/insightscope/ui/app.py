@@ -15,6 +15,7 @@ import gradio as gr
 
 from insightscope.actions.db import history
 from insightscope.config import Settings
+from insightscope.domain.checklist import ChecklistError
 from insightscope.inputs import plan_for
 from insightscope.ui.service import (
     HISTORY_COLUMNS,
@@ -36,6 +37,7 @@ from insightscope.ui.specs import (
     save_new_spec,
     save_uploaded_spec,
     spec_choices,
+    validate_spec_yaml,
     validation_message,
 )
 from insightscope.ui.state import audio_state
@@ -144,7 +146,7 @@ def on_choice(
         choice_update=None,
         filename_update=gr.update(visible=False, value=""),
         baseline=text,
-        generate_on=False,
+        generate_on=generate_enabled(choice, "", process_text),
         save_on=False,
         validation="",
         status=f"Loaded `{choice}`. Save enables when the YAML is valid and changed.",
@@ -190,26 +192,39 @@ def on_generate(
     specs_dir: Path | None = None,
 ) -> tuple[Any, ...]:
     root = _root(specs_dir)
-    if choice != NEW_SPEC:
+    if not process_text.strip():
         return _editor(
             text=None,
             choice_update=None,
             filename_update=None,
             baseline=baseline,
-            generate_on=None,
+            generate_on=False,
             save_on=None,
-            validation=validation_message(process_text),
-            status="Generate is only available for `+ New spec`.",
+            validation="",
+            status="Enter a process description first.",
+        )
+
+    warning = ""
+    if _client_key(client) == "fake":
+        warning = (
+            " The fake client returns a scripted coffee fixture, so this is a "
+            "placeholder — switch to ollama for a spec based on your description."
         )
 
     try:
-        ensure_new_filename(filename, root)
+        if choice == NEW_SPEC:
+            ensure_new_filename(filename, root)
+
         text = generate_spec_text(
             process_text,
             client=_client_key(client),
             cassette_path=_as_path(cassette),
         )
-        saved = save_new_spec(text, filename, root)
+        valid, message = validate_spec_yaml(text)
+        if not valid:
+            raise ChecklistError(message)
+
+        saved = save_new_spec(text, filename, root) if choice == NEW_SPEC else None
     except Exception as exc:
         return _editor(
             text=None,
@@ -222,21 +237,30 @@ def on_generate(
             status=f"**error:** {exc}",
         )
 
-    warning = ""
-    if _client_key(client) == "fake":
-        warning = (
-            " The fake client returns a scripted coffee fixture, so this file is a "
-            "placeholder — switch to ollama for a spec based on your description."
+    if saved is not None:
+        return _editor(
+            text=saved.text,
+            choice_update=dropdown_update(root, saved.path.name),
+            filename_update=gr.update(visible=False, value=""),
+            baseline=saved.text,
+            generate_on=False,
+            save_on=False,
+            validation="",
+            status=f"Spec saved to `{saved.path}`.{warning}",
         )
+
     return _editor(
-        text=saved.text,
-        choice_update=dropdown_update(root, saved.path.name),
-        filename_update=gr.update(visible=False, value=""),
-        baseline=saved.text,
-        generate_on=False,
-        save_on=False,
-        validation="",
-        status=f"Spec saved to `{saved.path}`.{warning}",
+        text=text,
+        choice_update=None,
+        filename_update=gr.update(visible=False),
+        baseline=baseline,
+        generate_on=generate_enabled(choice, filename, process_text),
+        save_on=save_enabled(choice, text, baseline, filename),
+        validation=validation_message(text),
+        status=(
+            f"Regenerated from the description. Review and **Save Spec** to update "
+            f"`{choice}`.{warning}"
+        ),
     )
 
 
