@@ -41,7 +41,7 @@ class UiRequest:
     spec: ChecklistSpec | None = None
     generated_spec: bool = False
     flag_omissions: bool = False
-    client: str = "fake"
+    client: str = "ollama"
     cassette_path: Path | None = None
     whisper_model: str = "small.en"
     specs_dir: Path = Path("specs")

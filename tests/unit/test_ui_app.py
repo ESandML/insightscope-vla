@@ -53,6 +53,7 @@ def test_run_handler_produces_report_and_history(tmp_path: Path) -> None:
         "",
         "",
         str(CHECKLIST),
+        None,
         "fake",
         None,
         False,
@@ -120,8 +121,63 @@ def test_selecting_and_saving_a_spec_persists_edits(tmp_path: Path) -> None:
     assert "Loaded" in status
 
     edited = loaded.replace("Brew a coffee", "Brew a stronger coffee")
-    dropdown, status = ui_app.on_save_spec(edited, specs_dir=specs)
+    saved_text, dropdown, status = ui_app.on_save_spec(edited, "make_coffee.yaml", specs_dir=specs)
 
     assert "Saved" in status
     assert dropdown["value"] == "make_coffee.yaml"
+    assert "stronger" in saved_text
     assert "stronger" in (specs / "make_coffee.yaml").read_text(encoding="utf-8")
+
+
+def test_default_client_is_ollama() -> None:
+    import gradio as gr
+
+    demo = ui_app.build_ui()
+    radios = [
+        block
+        for block in demo.blocks.values()
+        if isinstance(block, gr.Radio) and block.label == "Client"
+    ]
+    assert radios
+    assert radios[0].value == "ollama"
+
+
+def test_initial_yaml_is_preloaded() -> None:
+    import gradio as gr
+
+    demo = ui_app.build_ui()
+    boxes = [
+        block
+        for block in demo.blocks.values()
+        if isinstance(block, gr.Textbox) and block.label == "Audit spec (editable YAML)"
+    ]
+    assert boxes
+    assert "name: make_tea" in boxes[0].value
+
+
+def test_generate_with_fake_client_warns(tmp_path: Path) -> None:
+    specs = tmp_path / "specs"
+
+    _text, _dropdown, status = ui_app.on_generate(
+        "brew a cup of tea", "fake", None, specs_dir=specs
+    )
+
+    assert "fake" in status.lower()
+    assert "coffee" in status.lower()
+    assert (specs / "make_coffee.yaml").exists()
+
+
+def test_save_uses_the_selected_filename_without_duplicates(tmp_path: Path) -> None:
+    specs = tmp_path / "specs"
+    specs.mkdir()
+    tea = Path(__file__).parent.parent.parent / "specs" / "make_tea.yaml"
+    edited = tea.read_text(encoding="utf-8").replace("name: make_tea", "name: make_tea_edited")
+
+    saved_text, dropdown, status = ui_app.on_save_spec(edited, "make_tea.yaml", specs_dir=specs)
+
+    assert "Saved" in status
+    assert dropdown["value"] == "make_tea.yaml"
+    assert (specs / "make_tea.yaml").exists()
+    assert not (specs / "make_tea_edited.yaml").exists()
+    assert "name: make_tea\n" in saved_text
+    assert "make_tea_edited" not in saved_text
