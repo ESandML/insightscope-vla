@@ -181,12 +181,13 @@ Open <http://127.0.0.1:7860>.
    line under the editor explains why and **Save Spec** stays disabled. Save enables only
    when the text is valid *and* differs from the loaded file, then writes back to that
    same filename and preserves the `name:` you edited.
-3. **Or create a new spec.** Choose **+ New spec**: the editor clears and a **New spec
-   filename** box appears. **Generate Spec** enables only when both a filename and a
-   process description are present; **Save Spec** enables when the filename is set and
-   the YAML is valid. Existing filenames are refused with an error instead of being
-   overwritten. Uploaded `.yaml` files behave the same way and are selected in the
-   dropdown.
+3. **Or generate a spec.** With an existing spec selected, **Generate Spec** regenerates
+   the YAML from the process description into the editor for that file; the saved file is
+   untouched until you press **Save Spec**. Choose **+ New spec** to start a second file:
+   the editor clears, a **New spec filename** box appears, and Generate enables only when
+   both a filename and a process description are present. Existing filenames are refused
+   with an error instead of being overwritten. Uploaded `.yaml` files behave the same way
+   and are selected in the dropdown.
 4. **Pick a client.** The default is `ollama`, so a local server gives live generation and
    auditing. `fake` and `cassette replay` remain for offline runs — note that `fake`
    returns a scripted coffee fixture, and the status line says so if you generate a spec

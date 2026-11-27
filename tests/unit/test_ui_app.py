@@ -12,7 +12,7 @@ pytest.importorskip("gradio")
 import gradio as gr
 
 from insightscope.ui import app as ui_app
-from insightscope.ui.specs import NEW_SPEC, spec_names
+from insightscope.ui.specs import NEW_SPEC, save_enabled, spec_names
 
 CHECKLIST = Path(__file__).parent.parent / "fixtures" / "checklists" / "make_coffee.yaml"
 REPO_SPECS = Path(__file__).parent.parent.parent / "specs"
@@ -112,6 +112,47 @@ def test_invalid_yaml_keeps_save_disabled_and_explains_why(tmp_path: Path) -> No
 
     assert save["interactive"] is False
     assert "Invalid" in validation
+
+
+def test_generate_regenerates_the_selected_spec_without_writing(
+    tmp_path: Path,
+) -> None:
+    specs = copy_tea(tmp_path)
+    before = (specs / "make_tea.yaml").read_text(encoding="utf-8")
+
+    loaded = ui_app.on_choice("make_tea.yaml", "brew a pot of tea", specs_dir=specs)
+    baseline = loaded[3]
+    assert loaded[4]["interactive"] is True  # Generate enabled by the description
+    assert loaded[5]["interactive"] is False  # Save still needs a change
+
+    outputs = ui_app.on_generate(
+        "brew a pot of tea", "fake", None, "make_tea.yaml", "", baseline, specs_dir=specs
+    )
+    text, _choice, _filename, new_baseline, generate, save, validation, status = outputs
+
+    assert "Regenerated" in status
+    assert "name: make_coffee" in text["value"]  # fake client fixture
+    assert new_baseline == baseline  # saved baseline is unchanged
+    assert generate["interactive"] is True
+    assert save["interactive"] is True
+    assert validation == ""
+    assert save_enabled("make_tea.yaml", text["value"], baseline, "")
+
+    # Nothing was written: the user reviews and saves explicitly.
+    assert (specs / "make_tea.yaml").read_text(encoding="utf-8") == before
+    assert spec_names(specs) == ["make_tea.yaml"]
+
+
+def test_generate_needs_a_process_description(tmp_path: Path) -> None:
+    specs = copy_tea(tmp_path)
+    loaded = ui_app.on_choice("make_tea.yaml", "", specs_dir=specs)
+
+    outputs = ui_app.on_generate(
+        "   ", "fake", None, "make_tea.yaml", "", loaded[3], specs_dir=specs
+    )
+
+    assert outputs[4]["interactive"] is False
+    assert "process description" in outputs[7]
 
 
 def test_new_spec_clears_editor_and_requires_name_and_process(tmp_path: Path) -> None:

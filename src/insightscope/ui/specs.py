@@ -134,7 +134,16 @@ def save_enabled(choice: str, text: str, baseline: str, filename: str) -> bool:
 
 
 def generate_enabled(choice: str, filename: str, process_text: str) -> bool:
-    return choice == NEW_SPEC and bool(filename.strip()) and bool(process_text.strip())
+    """Generate needs a process description; a new spec also needs a filename.
+
+    With an existing spec selected, generating replaces the editor contents for that
+    file, so no filename is required.
+    """
+    if not process_text.strip():
+        return False
+    if choice == NEW_SPEC:
+        return bool(filename.strip())
+    return bool(choice.strip())
 
 
 def parse_spec_text(text: str) -> ChecklistSpec:
