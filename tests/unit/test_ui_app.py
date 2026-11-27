@@ -1,4 +1,4 @@
-"""Gradio app smoke tests: wiring and callbacks, no server launched."""
+"""Gradio app smoke tests: wiring, state transitions, and spec saving."""
 
 from __future__ import annotations
 
@@ -9,9 +9,13 @@ import pytest
 
 pytest.importorskip("gradio")
 
+import gradio as gr
+
 from insightscope.ui import app as ui_app
+from insightscope.ui.specs import NEW_SPEC, spec_names
 
 CHECKLIST = Path(__file__).parent.parent / "fixtures" / "checklists" / "make_coffee.yaml"
+REPO_SPECS = Path(__file__).parent.parent.parent / "specs"
 
 
 class NoopProgress:
@@ -19,10 +23,42 @@ class NoopProgress:
         return None
 
 
+def copy_tea(tmp_path: Path) -> Path:
+    specs = tmp_path / "specs"
+    specs.mkdir(exist_ok=True)
+    (specs / "make_tea.yaml").write_text(
+        (REPO_SPECS / "make_tea.yaml").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    return specs
+
+
+def block(demo: gr.Blocks, kind: type, label: str) -> object:
+    found = [
+        item
+        for item in demo.blocks.values()
+        if isinstance(item, kind)
+        and label in {getattr(item, "label", None), getattr(item, "value", None)}
+    ]
+    assert found, f"no {kind.__name__} labelled {label!r}"
+    return found[0]
+
+
 def test_build_ui_returns_blocks() -> None:
     demo = ui_app.build_ui()
     assert demo is not None
     assert len(demo.blocks) > 20
+
+
+def test_default_client_is_ollama() -> None:
+    demo = ui_app.build_ui()
+    assert block(demo, gr.Radio, "Client").value == "ollama"
+
+
+def test_initial_yaml_is_preloaded_and_save_is_disabled() -> None:
+    demo = ui_app.build_ui()
+    assert "name: make_tea" in block(demo, gr.Textbox, "Audit spec (editable YAML)").value
+    assert block(demo, gr.Button, "Save Spec").interactive is False
+    assert block(demo, gr.Button, "Generate Spec").interactive is False
 
 
 def test_video_change_explains_a_silent_clip(
@@ -40,6 +76,134 @@ def test_video_change_explains_a_silent_clip(
     assert "No audio track" in status
 
 
+def test_existing_spec_loads_and_requires_a_change_to_save(tmp_path: Path) -> None:
+    specs = copy_tea(tmp_path)
+
+    outputs = ui_app.on_choice("make_tea.yaml", "", specs_dir=specs)
+    text, _choice, filename, baseline, generate, save, validation, status = outputs
+
+    assert text["value"].startswith("name: make_tea")
+    assert filename["visible"] is False
+    assert generate["interactive"] is False
+    assert save["interactive"] is False
+    assert validation == ""
+    assert "Loaded" in status
+    assert baseline == text["value"]
+
+    _validation, save = ui_app.on_spec_text(text["value"] + "\n", "make_tea.yaml", baseline, "")
+    assert save["interactive"] is False  # whitespace only
+
+    edited = text["value"].replace(
+        "Brew a cup of tea at the kitchen counter.", "Brew a strong cup of tea."
+    )
+    validation, save = ui_app.on_spec_text(edited, "make_tea.yaml", baseline, "")
+    assert save["interactive"] is True
+    assert validation == ""
+
+
+def test_invalid_yaml_keeps_save_disabled_and_explains_why(tmp_path: Path) -> None:
+    specs = copy_tea(tmp_path)
+    outputs = ui_app.on_choice("make_tea.yaml", "", specs_dir=specs)
+    baseline = outputs[3]
+
+    validation, save = ui_app.on_spec_text(
+        "name: make_tea\nsteps: [unclosed", "make_tea.yaml", baseline, ""
+    )
+
+    assert save["interactive"] is False
+    assert "Invalid" in validation
+
+
+def test_new_spec_clears_editor_and_requires_name_and_process(tmp_path: Path) -> None:
+    specs = copy_tea(tmp_path)
+
+    outputs = ui_app.on_choice(NEW_SPEC, "", specs_dir=specs)
+    text, _choice, filename, baseline, generate, save, validation, status = outputs
+
+    assert text["value"] == ""
+    assert filename["visible"] is True
+    assert baseline == ""
+    assert generate["interactive"] is False
+    assert save["interactive"] is False
+    assert validation == ""
+    assert "New spec" in status
+
+    generate_update, _save = ui_app.on_new_filename("brew_tea.yaml", NEW_SPEC, "", "", "")
+    assert generate_update["interactive"] is False
+
+    generate_update, _save = ui_app.on_new_filename(
+        "brew_tea.yaml", NEW_SPEC, "brew a pot of tea", "", ""
+    )
+    assert generate_update["interactive"] is True
+
+    _validation, save = ui_app.on_spec_text("", NEW_SPEC, "", "brew_tea.yaml")
+    assert save["interactive"] is False
+
+
+def test_duplicate_filename_is_rejected_without_overwriting(tmp_path: Path) -> None:
+    specs = copy_tea(tmp_path)
+    before = (specs / "make_tea.yaml").read_text(encoding="utf-8")
+
+    outputs = ui_app.on_generate(
+        "brew tea", "fake", None, NEW_SPEC, "make_tea.yaml", "", specs_dir=specs
+    )
+
+    assert "already exists" in outputs[7]
+    assert (specs / "make_tea.yaml").read_text(encoding="utf-8") == before
+
+
+def test_duplicate_filename_is_rejected_on_save(tmp_path: Path) -> None:
+    specs = copy_tea(tmp_path)
+    text = (specs / "make_tea.yaml").read_text(encoding="utf-8")
+
+    outputs = ui_app.on_save(text, NEW_SPEC, "", "make_tea.yaml", specs_dir=specs)
+
+    assert "already exists" in outputs[7]
+
+
+def test_existing_save_preserves_the_edited_name(tmp_path: Path) -> None:
+    specs = copy_tea(tmp_path)
+    text = (
+        (specs / "make_tea.yaml")
+        .read_text(encoding="utf-8")
+        .replace("name: make_tea", "name: custom_tea")
+    )
+
+    outputs = ui_app.on_save(text, "make_tea.yaml", text, "", specs_dir=specs)
+
+    assert outputs[5]["interactive"] is False
+    assert "Saved" in outputs[7]
+    assert spec_names(specs) == ["make_tea.yaml"]
+    assert "name: custom_tea" in (specs / "make_tea.yaml").read_text(encoding="utf-8")
+
+
+def test_upload_saves_and_rejects_duplicates(tmp_path: Path) -> None:
+    specs = tmp_path / "specs"
+
+    outputs = ui_app.on_spec_upload(str(CHECKLIST), "", specs_dir=specs)
+    assert (specs / "make_coffee.yaml").exists()
+    assert outputs[1]["value"] == "make_coffee.yaml"
+    assert outputs[2]["visible"] is False
+    assert "Saved" in outputs[7]
+
+    duplicate = ui_app.on_spec_upload(str(CHECKLIST), "", specs_dir=specs)
+    assert "already exists" in duplicate[7]
+
+
+def test_generate_with_fake_client_warns(tmp_path: Path) -> None:
+    specs = tmp_path / "specs"
+
+    outputs = ui_app.on_generate(
+        "brew a cup of tea", "fake", None, NEW_SPEC, "brew_tea.yaml", "", specs_dir=specs
+    )
+
+    assert "fake" in outputs[7].lower()
+    assert "coffee" in outputs[7].lower()
+    assert (specs / "brew_tea.yaml").exists()
+    assert outputs[1]["value"] == "brew_tea.yaml"
+    assert outputs[2]["visible"] is False
+
+
 def test_run_handler_produces_report_and_history(tmp_path: Path) -> None:
     from tests.support import write_test_video
 
@@ -53,20 +217,22 @@ def test_run_handler_produces_report_and_history(tmp_path: Path) -> None:
         "",
         "",
         str(CHECKLIST),
-        None,
+        NEW_SPEC,
+        "",
         "fake",
         None,
         False,
+        "",
         specs_dir=specs,
         artifacts_dir=tmp_path / "artifacts",
         db_path=tmp_path / "audits.db",
         progress=NoopProgress(),
     )
 
-    status, keyframes, flagged, assertions, spec_text, report, history, dropdown = outputs
+    assert len(outputs) == 13
+    status, keyframes, flagged, assertions, spec_text, report, history, dropdown = outputs[:8]
     assert "complete" in status
     assert keyframes
-    # Missing-step findings have no frame to annotate.
     assert flagged == []
     findings = json.loads(assertions)["findings"]
     assert findings
@@ -76,108 +242,4 @@ def test_run_handler_produces_report_and_history(tmp_path: Path) -> None:
     assert dropdown["value"] == "make_coffee.yaml"
     assert "Findings" in report
     assert history
-
-
-def test_generate_spec_callback_handles_empty_input() -> None:
-    text, dropdown, status = ui_app.on_generate("   ", "fake", None)
-    assert isinstance(text, dict)
-    assert isinstance(dropdown, dict)
-    assert "error" in status
-
-
-def test_spec_upload_saves_into_specs_dir(tmp_path: Path) -> None:
-    specs = tmp_path / "specs"
-
-    text, dropdown, status = ui_app.on_spec_upload(str(CHECKLIST), specs_dir=specs)
-
-    assert (specs / "make_coffee.yaml").exists()
-    assert "make_coffee" in text
-    assert "make_coffee.yaml" in dropdown["choices"]
-    assert "Saved" in status
-
-
-def test_generate_spec_saves_and_selects_it(tmp_path: Path) -> None:
-    specs = tmp_path / "specs"
-
-    text, dropdown, status = ui_app.on_generate(
-        "fill the kettle, then pour water into the mug",
-        "fake",
-        None,
-        specs_dir=specs,
-    )
-
-    assert (specs / "make_coffee.yaml").exists()
-    assert dropdown["value"] == "make_coffee.yaml"
-    assert "make_coffee" in text
-    assert "saved" in status.lower()
-
-
-def test_selecting_and_saving_a_spec_persists_edits(tmp_path: Path) -> None:
-    specs = tmp_path / "specs"
-    _text, _dropdown, _status = ui_app.on_spec_upload(str(CHECKLIST), specs_dir=specs)
-
-    loaded, status = ui_app.on_select_spec("make_coffee.yaml", specs_dir=specs)
-    assert "make_coffee" in loaded
-    assert "Loaded" in status
-
-    edited = loaded.replace("Brew a coffee", "Brew a stronger coffee")
-    saved_text, dropdown, status = ui_app.on_save_spec(edited, "make_coffee.yaml", specs_dir=specs)
-
-    assert "Saved" in status
-    assert dropdown["value"] == "make_coffee.yaml"
-    assert "stronger" in saved_text
-    assert "stronger" in (specs / "make_coffee.yaml").read_text(encoding="utf-8")
-
-
-def test_default_client_is_ollama() -> None:
-    import gradio as gr
-
-    demo = ui_app.build_ui()
-    radios = [
-        block
-        for block in demo.blocks.values()
-        if isinstance(block, gr.Radio) and block.label == "Client"
-    ]
-    assert radios
-    assert radios[0].value == "ollama"
-
-
-def test_initial_yaml_is_preloaded() -> None:
-    import gradio as gr
-
-    demo = ui_app.build_ui()
-    boxes = [
-        block
-        for block in demo.blocks.values()
-        if isinstance(block, gr.Textbox) and block.label == "Audit spec (editable YAML)"
-    ]
-    assert boxes
-    assert "name: make_tea" in boxes[0].value
-
-
-def test_generate_with_fake_client_warns(tmp_path: Path) -> None:
-    specs = tmp_path / "specs"
-
-    _text, _dropdown, status = ui_app.on_generate(
-        "brew a cup of tea", "fake", None, specs_dir=specs
-    )
-
-    assert "fake" in status.lower()
-    assert "coffee" in status.lower()
-    assert (specs / "make_coffee.yaml").exists()
-
-
-def test_save_uses_the_selected_filename_without_duplicates(tmp_path: Path) -> None:
-    specs = tmp_path / "specs"
-    specs.mkdir()
-    tea = Path(__file__).parent.parent.parent / "specs" / "make_tea.yaml"
-    edited = tea.read_text(encoding="utf-8").replace("name: make_tea", "name: make_tea_edited")
-
-    saved_text, dropdown, status = ui_app.on_save_spec(edited, "make_tea.yaml", specs_dir=specs)
-
-    assert "Saved" in status
-    assert dropdown["value"] == "make_tea.yaml"
-    assert (specs / "make_tea.yaml").exists()
-    assert not (specs / "make_tea_edited.yaml").exists()
-    assert "name: make_tea\n" in saved_text
-    assert "make_tea_edited" not in saved_text
+    assert outputs[11]["interactive"] is False  # save disabled after run
